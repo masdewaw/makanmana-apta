@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { LogOut, CheckCircle, MapPin, Search, ChevronRight, Star, ShoppingBag, Trash2, CreditCard, Wallet, Plus } from 'lucide-react'
+import { LogOut, CheckCircle, MapPin, Search, ChevronRight, Star, ShoppingBag, Trash2, CreditCard, Wallet, Plus, Copy } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -202,6 +202,11 @@ export default function UserDashboard({ session }: { session: Session }) {
     }
   }
 
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text)
+    toast.success(`${label} disalin ke clipboard!`)
+  }
+
   const formatRupiah = (number: number) => {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number)
   }
@@ -371,6 +376,11 @@ export default function UserDashboard({ session }: { session: Session }) {
             )}
           </div>
         )}
+        
+        {/* Footer Credit */}
+        <div className="py-10 text-center opacity-30">
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Application Created by Dewa</p>
+        </div>
       </div>
 
       {/* Floating Cart Bar */}
@@ -531,25 +541,55 @@ export default function UserDashboard({ session }: { session: Session }) {
                 <div className="flex items-start gap-4">
                    <div className="bg-white p-2 rounded-2xl shadow-sm text-2xl shrink-0">📸</div>
                    <div className="space-y-1">
-                      <p className="font-black text-slate-800 text-xs">Upload Bukti Transfer</p>
-                      <p className="text-[10px] text-amber-700 font-medium leading-relaxed">Kirim ke Rekening/QRIS Kantor & upload fotonya di sini.</p>
+                      <p className="font-black text-slate-800 text-xs">Informasi Pembayaran</p>
+                      <p className="text-[10px] text-amber-700 font-medium leading-relaxed">Silakan transfer ke salah satu rekening OB di bawah ini:</p>
                    </div>
                 </div>
-                <Input 
-                  type="file" 
-                  ref={fileInputRef}
-                  onChange={(e) => setProofFile(e.target.files?.[0] || null)}
-                  className="hidden" 
-                  accept="image/*"
-                />
-                <Button 
-                  type="button"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`w-full h-14 border-dashed border-2 rounded-2xl font-bold transition-all ${proofFile ? 'border-green-500 bg-green-50 text-green-700' : 'border-amber-300 bg-white text-amber-700 hover:bg-amber-50'}`}
-                >
-                  {proofFile ? `✅ ${proofFile.name}` : 'Pilih Foto Bukti'}
-                </Button>
+
+                <div className="space-y-2">
+                   <div className="bg-white/60 p-3 rounded-2xl border border-amber-200/50 flex justify-between items-center">
+                      <div>
+                         <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest">BCA - MISBAKHUL UMAM</p>
+                         <p className="font-black text-slate-800 text-sm">2381149902</p>
+                      </div>
+                      <button onClick={() => copyToClipboard('2381149902', 'Nomor Rekening')} className="p-2 bg-white rounded-xl shadow-sm text-amber-600 active:scale-90 transition-all border border-amber-100">
+                         <Copy className="w-4 h-4" />
+                      </button>
+                   </div>
+                   <div className="bg-white/60 p-3 rounded-2xl border border-amber-200/50 flex justify-between items-center">
+                      <div>
+                         <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest">BCA - BERNADUS KOPONG KOREBIMA</p>
+                         <p className="font-black text-slate-800 text-sm">0280248151</p>
+                      </div>
+                      <button onClick={() => copyToClipboard('0280248151', 'Nomor Rekening')} className="p-2 bg-white rounded-xl shadow-sm text-amber-600 active:scale-90 transition-all border border-amber-100">
+                         <Copy className="w-4 h-4" />
+                      </button>
+                   </div>
+                </div>
+
+                <div className="h-px bg-amber-200/50 w-full" />
+
+                <div className="space-y-2">
+                   <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                      <p className="text-[9px] font-black text-amber-800 uppercase">Input Bukti Foto</p>
+                   </div>
+                   <Input 
+                      type="file" 
+                      ref={fileInputRef}
+                      onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                      className="hidden" 
+                      accept="image/*"
+                   />
+                   <Button 
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`w-full h-14 border-dashed border-2 rounded-2xl font-bold transition-all ${proofFile ? 'border-green-500 bg-green-50 text-green-700' : 'border-amber-300 bg-white text-amber-700 hover:bg-amber-50'}`}
+                   >
+                      {proofFile ? `✅ ${proofFile.name}` : 'Pilih Foto Bukti'}
+                   </Button>
+                </div>
               </div>
             )}
 

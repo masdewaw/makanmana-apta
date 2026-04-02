@@ -431,6 +431,11 @@ export default function OBDashboard({ session }: { session: Session }) {
                 </div>
               )}
             </div>
+
+            {/* Footer Credit */}
+            <div className="py-10 text-center opacity-30">
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Application Created by Dewa</p>
+            </div>
           </div>
         )}
       </div>
