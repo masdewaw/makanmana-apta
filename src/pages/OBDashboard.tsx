@@ -49,6 +49,53 @@ export default function OBDashboard({ session }: { session: Session }) {
     fetchMyProfile()
     fetchActiveOrders()
     fetchMenus()
+
+    // Real-time subscription
+    const channel = supabase
+      .channel('public:orders')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'orders' 
+      }, async (payload) => {
+        // If it's a new order or an update, we might need the profile join
+        // Real-time doesn't support joins, so we refetch to get the profile name
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          const { data: freshOrder, error } = await supabase
+            .from('orders')
+            .select('*, profiles(name)')
+            .eq('id', payload.new.id)
+            .single()
+          
+          if (freshOrder && !error) {
+            setOrders(current => {
+              const exists = current.find(o => o.id === freshOrder.id)
+              if (exists) {
+                // If the order was just completed, we remove it (if it's not waiting anymore)
+                if (freshOrder.order_status === 'done') {
+                  return current.filter(o => o.id !== freshOrder.id)
+                }
+                return current.map(o => o.id === freshOrder.id ? freshOrder : o)
+              } else {
+                // Only add if it's within the active window (waiting and recent)
+                if (freshOrder.order_status === 'waiting') {
+                  return [...current, freshOrder].sort((a, b) => 
+                    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                  )
+                }
+                return current
+              }
+            })
+          }
+        } else if (payload.eventType === 'DELETE') {
+          setOrders(current => current.filter(o => o.id !== payload.old.id))
+        }
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [])
 
   const fetchMyProfile = async () => {
@@ -81,20 +128,36 @@ export default function OBDashboard({ session }: { session: Session }) {
 
   const takeOrder = async (id: string) => {
     if (!myObId) return
+    
+    // Optimistic Update
+    const originalOrders = [...orders]
+    setOrders(current => current.map(o => 
+      o.id === id ? { ...o, assigned_to_ob: myObId } : o
+    ))
+
     const { error } = await supabase.from('orders').update({ assigned_to_ob: myObId }).eq('id', id)
-    if (error) toast.error("Gagal mengambil pesanan")
-    else {
+    if (error) {
+      toast.error("Gagal mengambil pesanan")
+      setOrders(originalOrders) // Rollback
+    } else {
       toast.success(`Pesanan diambil oleh ${myObId}!`)
-      fetchActiveOrders()
+      // No need to fetch, realtime or manual state update handled it
     }
   }
 
   const releaseOrder = async (id: string) => {
+    // Optimistic Update
+    const originalOrders = [...orders]
+    setOrders(current => current.map(o => 
+      o.id === id ? { ...o, assigned_to_ob: null } : o
+    ))
+
     const { error } = await supabase.from('orders').update({ assigned_to_ob: null }).eq('id', id)
-    if (error) toast.error("Gagal melepas pesanan")
-    else {
+    if (error) {
+      toast.error("Gagal melepas pesanan")
+      setOrders(originalOrders) // Rollback
+    } else {
       toast.success("Pesanan dikembalikan ke daftar umum")
-      fetchActiveOrders()
     }
   }
 
@@ -103,9 +166,20 @@ export default function OBDashboard({ session }: { session: Session }) {
       toast.error("Hanya OB yang ditugaskan yang bisa verifikasi!")
       return
     }
-    await supabase.from('orders').update({ payment_status: 'paid' }).eq('id', order.id)
-    toast.success("Pembayaran berhasil diverifikasi!")
-    fetchActiveOrders()
+
+    // Optimistic Update
+    const originalOrders = [...orders]
+    setOrders(current => current.map(o => 
+      o.id === order.id ? { ...o, payment_status: 'paid' } : o
+    ))
+
+    const { error } = await supabase.from('orders').update({ payment_status: 'paid' }).eq('id', order.id)
+    if (error) {
+      toast.error("Gagal verifikasi pembayaran")
+      setOrders(originalOrders) // Rollback
+    } else {
+      toast.success("Pembayaran berhasil diverifikasi!")
+    }
   }
 
   const markAsDone = async (order: OBOrder) => {
@@ -113,9 +187,18 @@ export default function OBDashboard({ session }: { session: Session }) {
       toast.error("Hanya OB yang ditugaskan yang bisa menyelesaikan!")
       return
     }
-    await supabase.from('orders').update({ order_status: 'done' }).eq('id', order.id)
-    toast.success("Pesanan diselesaikan!")
-    fetchActiveOrders()
+
+    // Optimistic Update
+    const originalOrders = [...orders]
+    setOrders(current => current.filter(o => o.id !== order.id))
+
+    const { error } = await supabase.from('orders').update({ order_status: 'done' }).eq('id', order.id)
+    if (error) {
+      toast.error("Gagal menyelesaikan pesanan")
+      setOrders(originalOrders) // Rollback
+    } else {
+      toast.success("Pesanan diselesaikan!")
+    }
   }
 
   const handleAddMenu = async () => {

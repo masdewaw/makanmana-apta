@@ -79,7 +79,30 @@ export default function UserDashboard({ session }: { session: Session }) {
     fetchProfile()
     fetchMenus()
     fetchOrders()
-  }, [])
+
+    // Real-time subscription for this user's orders
+    const channel = supabase
+      .channel(`public:orders:user:${session.user.id}`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'orders',
+        filter: `user_id=eq.${session.user.id}`
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setOrders(current => [payload.new as Order, ...current])
+        } else if (payload.eventType === 'UPDATE') {
+          setOrders(current => current.map(o => o.id === payload.new.id ? { ...o, ...payload.new } : o))
+        } else if (payload.eventType === 'DELETE') {
+          setOrders(current => current.filter(o => o.id !== payload.old.id))
+        }
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [session.user.id])
 
   const fetchProfile = async () => {
     const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
