@@ -627,7 +627,7 @@ export default function OBDashboard({ session }: { session: Session }) {
                             {order.profiles?.name || 'User'} • {new Date(order.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
                           </span>
                         </div>
-                        <h4 className="font-bold text-slate-800 truncate leading-tight">{order.food_name}</h4>
+                        <h4 className="font-bold text-slate-800 leading-tight">{order.food_name}</h4>
                         <p className="text-slate-500 font-bold text-xs">{formatRupiah(order.price)}</p>
                       </div>
                       <div className="shrink-0 flex flex-col items-end gap-2">
@@ -931,9 +931,14 @@ export default function OBDashboard({ session }: { session: Session }) {
           <div className="space-y-3 py-4 max-h-[50vh] overflow-y-auto pr-1">
             {orders.filter(o => o.assigned_to_ob === selectedObForDetail).map((order) => (
               <div key={order.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                <div className="flex-1 min-w-0 pr-3">
+                <div className="flex-1 pr-3">
                   <p className="text-xs font-black text-amber-600 uppercase tracking-tighter mb-1">{order.profiles?.name || 'User'}</p>
-                  <h4 className="font-bold text-slate-800 truncate">{order.food_name}</h4>
+                  <h4 className="font-bold text-slate-800 leading-tight">{order.food_name}</h4>
+                  {order.catatan && (
+                    <p className="text-[10px] text-amber-600 font-medium mt-1 italic flex items-start gap-1">
+                      <span className="shrink-0">📝</span> {order.catatan}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 mt-1">
                     <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest ${order.payment_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                       {order.payment_status === 'paid' ? 'LUNAS' : 'BELUM BAYAR'}
