@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
@@ -60,6 +60,8 @@ export default function OBDashboard({ session }: { session: Session }) {
   const [isBusy, setIsBusy] = useState(false)
   const [catFilter, setCatFilter] = useState('Semua')
   const [selectedObForDetail, setSelectedObForDetail] = useState<string | null>(null)
+  
+  const lastUpdateRef = useRef<number>(0)
 
   useEffect(() => {
     fetchMyProfile()
@@ -98,9 +100,10 @@ export default function OBDashboard({ session }: { session: Session }) {
               } else {
                 // Only add if it's within the active window (waiting and recent)
                 if (freshOrder.order_status === 'waiting') {
-                  return [...current, freshOrder].sort((a, b) => 
-                    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                  const newOrders = [...current, freshOrder].sort((a, b) => 
+                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
                   )
+                  return newOrders
                 }
                 return current
               }
@@ -122,6 +125,36 @@ export default function OBDashboard({ session }: { session: Session }) {
       fetchHistoryOrders()
     }
   }, [myObId, historyPage])
+
+  useEffect(() => {
+    if (view !== 'orders' || !session.user.id) return
+
+    const watchId = navigator.geolocation.watchPosition(
+      async (position) => {
+        const now = Date.now()
+        // Throttle to 10 seconds
+        if (now - lastUpdateRef.current < 10000) return
+        
+        lastUpdateRef.current = now
+        await supabase
+          .from('profiles')
+          .update({
+            last_lat: position.coords.latitude,
+            last_lng: position.coords.longitude,
+            last_updated_at: new Date().toISOString()
+          })
+          .eq('id', session.user.id)
+      },
+      (error) => {
+        if (error.code === 1) { // PERMISSION_DENIED
+           console.warn('Geolocation permission denied')
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    )
+
+    return () => navigator.geolocation.clearWatch(watchId)
+  }, [view, session.user.id])
 
   const fetchMyProfile = async () => {
     const { data } = await supabase.from('profiles').select('name').eq('id', session.user.id).single()
@@ -183,7 +216,7 @@ export default function OBDashboard({ session }: { session: Session }) {
       .select('*, profiles(name)')
       .eq('order_status', 'waiting')
       .gt('created_at', yesterday)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       
     if (data) setOrders(data)
   }

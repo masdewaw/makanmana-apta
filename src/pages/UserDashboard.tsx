@@ -9,9 +9,11 @@ import { Label } from '../components/ui/label'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../components/ui/drawer'
 
 export type Menu = { id: string; food_name: string; price: number; category: string }
-export type Order = { id: string; food_name: string; price: number; created_at: string; order_status: string; payment_method: string; payment_status: string; catatan: string | null; profiles?: { name: string } }
+export type Order = { id: string; food_name: string; price: number; created_at: string; order_status: string; payment_method: string; payment_status: string; catatan: string | null; profiles?: { name: string }; assigned_to_ob?: string }
 
-function OrderCard({ order, formatRupiah }: { order: Order; formatRupiah: (n: number) => string }) {
+import TrackingMap from '../components/TrackingMap'
+
+function OrderCard({ order, formatRupiah, onTrack }: { order: Order; formatRupiah: (n: number) => string, onTrack?: (ob: string) => void }) {
   const isAutoDone = new Date().getTime() - new Date(order.created_at).getTime() > 24 * 60 * 60 * 1000
   const displayStatus = isAutoDone ? 'done' : order.order_status
 
@@ -47,6 +49,18 @@ function OrderCard({ order, formatRupiah }: { order: Order; formatRupiah: (n: nu
           )}
         </div>
       </div>
+      {displayStatus === 'waiting' && order.assigned_to_ob && (
+        <div className="px-4 pb-4">
+           <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => onTrack?.(order.assigned_to_ob!)}
+            className="h-8 rounded-xl text-[10px] font-black uppercase tracking-widest text-amber-600 bg-amber-50 hover:bg-amber-100 flex items-center gap-2 w-full justify-center transition-all active:scale-95 border border-amber-200/50"
+          >
+            <MapPin className="w-3 h-3" /> Pantau Lokasi {order.assigned_to_ob}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
@@ -78,6 +92,7 @@ export default function UserDashboard({ session }: { session: Session }) {
   const [isManualDrawerOpen, setIsManualDrawerOpen] = useState(false)
   const [manualFoodName, setManualFoodName] = useState('')
   const [manualFoodPrice, setManualFoodPrice] = useState('')
+  const [trackingOb, setTrackingOb] = useState<string | null>(null)
   
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -399,7 +414,7 @@ export default function UserDashboard({ session }: { session: Session }) {
                 </div>
                 <div className="space-y-3">
                   {orders.filter(o => o.order_status === 'waiting').slice(0, 2).map(order => (
-                    <OrderCard key={order.id} order={order} formatRupiah={formatRupiah} />
+                    <OrderCard key={order.id} order={order} formatRupiah={formatRupiah} onTrack={setTrackingOb} />
                   ))}
                 </div>
               </div>
@@ -524,8 +539,8 @@ export default function UserDashboard({ session }: { session: Session }) {
               </div>
             ) : (
               <div className="space-y-4">
-                {orders.map(order => (
-                  <OrderCard key={order.id} order={order} formatRupiah={formatRupiah} />
+                {orders.filter(o => o.order_status === 'waiting' || (new Date().getTime() - new Date(o.created_at).getTime() < 24 * 60 * 60 * 1000)).map(order => (
+                  <OrderCard key={order.id} order={order} formatRupiah={formatRupiah} onTrack={setTrackingOb} />
                 ))}
               </div>
             )}
@@ -849,6 +864,37 @@ export default function UserDashboard({ session }: { session: Session }) {
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+       {/* Tracking Map Drawer */}
+       <Drawer open={!!trackingOb} onOpenChange={(open) => !open && setTrackingOb(null)}>
+         <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-12 border-0 shadow-2xl">
+           <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
+           <DrawerHeader className="px-0">
+             <DrawerTitle className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                Pantau OB 🛵
+             </DrawerTitle>
+             <DrawerDescription className="text-slate-500 font-medium">
+                Posisi real-time {trackingOb} saat ini.
+             </DrawerDescription>
+           </DrawerHeader>
+
+           <div className="py-4">
+              {trackingOb && <TrackingMap obName={trackingOb} />}
+              
+              <div className="mt-6 p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-3">
+                <div className="text-xl">💡</div>
+                <p className="text-[10px] text-amber-800 font-bold leading-relaxed uppercase tracking-tight">
+                  Lokasi diupdate setiap 10 detik. Jika posisi tidak bergerak, kemungkinan OB sedang di dalam gedung atau sinyal GPS lemah.
+                </p>
+              </div>
+           </div>
+
+           <DrawerFooter className="px-0 mt-2">
+             <Button onClick={() => setTrackingOb(null)} className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black text-base shadow-xl active:scale-95 transition-all">
+               OK, SIAP! ✅
+             </Button>
+           </DrawerFooter>
+         </DrawerContent>
+       </Drawer>
     </div>
   )
 }
