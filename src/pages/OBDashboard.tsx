@@ -43,7 +43,8 @@ export default function OBDashboard({ session }: { session: Session }) {
   // Form States
   const [newFoodName, setNewFoodName] = useState('')
   const [newFoodPrice, setNewFoodPrice] = useState('')
-  const [isBusy, setIsBusy] = useState(false)
+   const [isBusy, setIsBusy] = useState(false)
+  const [selectedObForDetail, setSelectedObForDetail] = useState<string | null>(null)
 
   useEffect(() => {
     fetchMyProfile()
@@ -317,7 +318,10 @@ export default function OBDashboard({ session }: { session: Session }) {
           <>
             {/* Summaries */}
             <div className="grid grid-cols-2 gap-3">
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
+              <div 
+                onClick={() => setSelectedObForDetail('OB 1')}
+                className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm active:scale-95 transition-all cursor-pointer hover:border-amber-200"
+              >
                 <div className="flex justify-between items-start mb-2">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">OB 1 (Bahul)</span>
                   <div className="bg-amber-100 text-amber-600 p-1 rounded-lg">
@@ -325,9 +329,12 @@ export default function OBDashboard({ session }: { session: Session }) {
                   </div>
                 </div>
                 <p className="text-lg font-black text-slate-800">{formatRupiah(ob1Total)}</p>
-                <p className="text-[10px] font-bold text-slate-500 mt-1">{orders.filter(o => o.assigned_to_ob === 'OB 1').length} Pesanan</p>
+                <p className="text-[10px] font-bold text-slate-500 mt-1 underline decoration-amber-200 underline-offset-2">{orders.filter(o => o.assigned_to_ob === 'OB 1').length} Pesanan (Lihat Detail)</p>
               </div>
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
+              <div 
+                onClick={() => setSelectedObForDetail('OB 2')}
+                className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm active:scale-95 transition-all cursor-pointer hover:border-orange-200"
+              >
                 <div className="flex justify-between items-start mb-2">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">OB 2 (Masber)</span>
                   <div className="bg-orange-100 text-orange-600 p-1 rounded-lg">
@@ -335,7 +342,7 @@ export default function OBDashboard({ session }: { session: Session }) {
                   </div>
                 </div>
                 <p className="text-lg font-black text-slate-800">{formatRupiah(ob2Total)}</p>
-                <p className="text-[10px] font-bold text-slate-500 mt-1">{orders.filter(o => o.assigned_to_ob === 'OB 2').length} Pesanan</p>
+                <p className="text-[10px] font-bold text-slate-500 mt-1 underline decoration-orange-200 underline-offset-2">{orders.filter(o => o.assigned_to_ob === 'OB 2').length} Pesanan (Lihat Detail)</p>
               </div>
             </div>
             
@@ -597,6 +604,51 @@ export default function OBDashboard({ session }: { session: Session }) {
               {isBusy ? 'Menyimpan...' : 'UPDATE MENU ✅'}
             </Button>
             <Button variant="ghost" onClick={() => setIsEditDrawerOpen(false)} className="w-full h-12 text-slate-400 font-bold">Batal</Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+      {/* OB Detail Drawer */}
+      <Drawer open={!!selectedObForDetail} onOpenChange={() => setSelectedObForDetail(null)}>
+        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6 pb-8">
+          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
+          <DrawerHeader className="px-0">
+            <DrawerTitle className="text-2xl font-black text-slate-800 flex items-center gap-2">
+              Detail Pesanan {selectedObForDetail}
+            </DrawerTitle>
+            <DrawerDescription className="text-slate-500 font-medium">
+              Daftar makanan yang sedang diproses oleh {selectedObForDetail}.
+            </DrawerDescription>
+          </DrawerHeader>
+
+          <div className="space-y-3 py-4 max-h-[50vh] overflow-y-auto pr-1">
+            {orders.filter(o => o.assigned_to_ob === selectedObForDetail).map((order) => (
+              <div key={order.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="flex-1 min-w-0 pr-3">
+                  <p className="text-xs font-black text-amber-600 uppercase tracking-tighter mb-1">{order.profiles?.name || 'User'}</p>
+                  <h4 className="font-bold text-slate-800 truncate">{order.food_name}</h4>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest ${order.payment_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {order.payment_status === 'paid' ? 'LUNAS' : 'BELUM BAYAR'}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400">{formatRupiah(order.price)}</span>
+                  </div>
+                </div>
+                <div className="shrink-0">
+                  <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-sm shadow-sm">🥡</div>
+                </div>
+              </div>
+            ))}
+            {orders.filter(o => o.assigned_to_ob === selectedObForDetail).length === 0 && (
+              <div className="text-center py-10">
+                <p className="text-slate-400 font-bold italic">Belum ada pesanan yang diambil.</p>
+              </div>
+            )}
+          </div>
+
+          <DrawerFooter className="px-0 pt-2">
+            <Button onClick={() => setSelectedObForDetail(null)} className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black text-base shadow-xl active:scale-95 transition-all">
+              TUTUP ✅
+            </Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
