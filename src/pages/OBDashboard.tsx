@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { CheckCircle, Image as ImageIcon, CalendarClock, ShoppingBag, MessageSquare, LogOut, Plus, Trash2, UtensilsCrossed, LayoutDashboard, Edit2, UserCheck, AlertTriangle } from 'lucide-react'
+import { CheckCircle, Image as ImageIcon, CalendarClock, ShoppingBag, MessageSquare, LogOut, Plus, Trash2, UtensilsCrossed, LayoutDashboard, Edit2, UserCheck, AlertTriangle, History, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../components/ui/drawer'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
-
 export type OBOrder = { 
   id: string; 
   food_name: string; 
@@ -20,19 +19,30 @@ export type OBOrder = {
   assigned_to_ob: string | null; 
   proof_url: string | null; 
   catatan: string | null;
-  profiles?: { name: string } 
+  profiles?: { name: string };
+  category: string;
+  updated_at?: string;
 }
 
-type Menu = {
-  id: string
-  food_name: string
-  price: number
+export type Menu = { 
+  id: string; 
+  food_name: string; 
+  price: number; 
+  category: string;
+}
+
+export type Category = {
+  id: string;
+  name: string;
 }
 
 export default function OBDashboard({ session }: { session: Session }) {
   const [orders, setOrders] = useState<OBOrder[]>([])
   const [menus, setMenus] = useState<Menu[]>([])
-  const [view, setView] = useState<'orders' | 'menu'>('orders')
+  const [view, setView] = useState<'orders' | 'history' | 'menu'>('orders')
+  const [historyOrders, setHistoryOrders] = useState<OBOrder[]>([])
+  const [historyPage, setHistoryPage] = useState(1)
+  const [totalHistoryCount, setTotalHistoryCount] = useState(0)
   const [myObId, setMyObId] = useState<string | null>(null)
   
   // Menu Drawers
@@ -43,13 +53,18 @@ export default function OBDashboard({ session }: { session: Session }) {
   // Form States
   const [newFoodName, setNewFoodName] = useState('')
   const [newFoodPrice, setNewFoodPrice] = useState('')
-   const [isBusy, setIsBusy] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState('Lainnya')
+  const [dbCategories, setDbCategories] = useState<Category[]>([])
+  const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [isBusy, setIsBusy] = useState(false)
   const [selectedObForDetail, setSelectedObForDetail] = useState<string | null>(null)
 
   useEffect(() => {
     fetchMyProfile()
     fetchActiveOrders()
     fetchMenus()
+    fetchCategories()
 
     // Real-time subscription
     const channel = supabase
@@ -74,6 +89,8 @@ export default function OBDashboard({ session }: { session: Session }) {
               if (exists) {
                 // If the order was just completed, we remove it (if it's not waiting anymore)
                 if (freshOrder.order_status === 'done') {
+                  // Refetch history when an order is done
+                  fetchHistoryOrders()
                   return current.filter(o => o.id !== freshOrder.id)
                 }
                 return current.map(o => o.id === freshOrder.id ? freshOrder : o)
@@ -99,6 +116,12 @@ export default function OBDashboard({ session }: { session: Session }) {
     }
   }, [])
 
+  useEffect(() => {
+    if (myObId) {
+      fetchHistoryOrders()
+    }
+  }, [myObId, historyPage])
+
   const fetchMyProfile = async () => {
     const { data } = await supabase.from('profiles').select('name').eq('id', session.user.id).single()
     if (data) {
@@ -114,6 +137,43 @@ export default function OBDashboard({ session }: { session: Session }) {
     if (data) setMenus(data)
   }
 
+  const fetchCategories = async () => {
+    const { data } = await supabase.from('categories').select('*').order('name')
+    if (data) {
+      setDbCategories(data)
+      if (data.length > 0 && !data.find(c => c.name === selectedCategory)) {
+         // Optionally reset if current selected is gone, but we usually default to 'Lainnya'
+      }
+    }
+  }
+
+  const handleAddCategory = async () => {
+    if (!newCategoryName) return
+    setIsBusy(true)
+    const { error } = await supabase.from('categories').insert([{ name: newCategoryName }])
+    if (error) toast.error("Gagal tambah kategori (mungkin sudah ada?)")
+    else {
+      toast.success("Kategori baru ditambahkan!")
+      setNewCategoryName('')
+      fetchCategories()
+    }
+    setIsBusy(false)
+  }
+
+  const deleteCategory = async (id: string, name: string) => {
+    if (name === 'Lainnya') {
+       toast.error("Kategori 'Lainnya' tidak bisa dihapus")
+       return
+    }
+    if (!window.confirm(`Hapus kategori "${name}"? Menu dengan kategori ini akan tetap ada.`)) return
+    const { error } = await supabase.from('categories').delete().eq('id', id)
+    if (error) toast.error("Gagal hapus kategori")
+    else {
+      toast.success("Kategori dihapus")
+      fetchCategories()
+    }
+  }
+
   const fetchActiveOrders = async () => {
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     
@@ -125,6 +185,24 @@ export default function OBDashboard({ session }: { session: Session }) {
       .order('created_at', { ascending: true })
       
     if (data) setOrders(data)
+  }
+
+  const fetchHistoryOrders = async () => {
+    if (!myObId) return
+
+    const start = (historyPage - 1) * 10
+    const end = start + 9
+
+    const { data, count } = await supabase
+      .from('orders')
+      .select('*, profiles(name)', { count: 'exact' })
+      .eq('order_status', 'done')
+      .eq('assigned_to_ob', myObId)
+      .order('created_at', { ascending: false })
+      .range(start, end)
+      
+    if (data) setHistoryOrders(data)
+    if (count !== null) setTotalHistoryCount(count)
   }
 
   const takeOrder = async (id: string) => {
@@ -210,7 +288,7 @@ export default function OBDashboard({ session }: { session: Session }) {
     
     setIsBusy(true)
     const { error } = await supabase.from('menus').insert([
-      { food_name: newFoodName, price: Number(newFoodPrice) }
+      { food_name: newFoodName, price: Number(newFoodPrice), category: selectedCategory }
     ])
 
     if (error) toast.error("Gagal menambah menu")
@@ -230,7 +308,8 @@ export default function OBDashboard({ session }: { session: Session }) {
     setIsBusy(true)
     const { error } = await supabase.from('menus').update({
       food_name: newFoodName,
-      price: Number(newFoodPrice)
+      price: Number(newFoodPrice),
+      category: selectedCategory
     }).eq('id', editingMenu.id)
 
     if (error) toast.error("Gagal update menu")
@@ -246,6 +325,7 @@ export default function OBDashboard({ session }: { session: Session }) {
     setEditingMenu(menu)
     setNewFoodName(menu.food_name)
     setNewFoodPrice(menu.price.toString())
+    setSelectedCategory(menu.category || 'Lainnya')
     setIsEditDrawerOpen(true)
   }
 
@@ -301,20 +381,27 @@ export default function OBDashboard({ session }: { session: Session }) {
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${view === 'orders' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
           >
             <LayoutDashboard className="w-4 h-4" />
-            Pesanan Masuk
+            Pesanan
+          </button>
+          <button 
+            onClick={() => setView('history')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${view === 'history' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
+          >
+            <History className="w-4 h-4" />
+            Riwayat
           </button>
           <button 
             onClick={() => setView('menu')}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${view === 'menu' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
           >
             <ShoppingBag className="w-4 h-4" />
-            Kelola Menu
+            Menu
           </button>
         </div>
       </div>
 
       <div className="p-5 space-y-6 flex-1">
-        {view === 'orders' ? (
+        {view === 'orders' && (
           <>
             {/* Summaries */}
             <div className="grid grid-cols-2 gap-3">
@@ -476,7 +563,82 @@ export default function OBDashboard({ session }: { session: Session }) {
               )}
             </div>
           </>
-        ) : (
+        )}
+
+        {view === 'history' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+               <h3 className="font-black text-slate-800 text-xl flex items-center gap-2">
+                 Riwayat Saya 💪
+               </h3>
+               <span className="bg-slate-200 text-slate-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">{historyOrders.length} Selesai</span>
+            </div>
+
+            {historyOrders.length === 0 ? (
+              <div className="text-center py-20 flex flex-col items-center text-slate-400 bg-white rounded-[32px] border-2 border-slate-100 border-dashed">
+                <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-4">
+                  <History className="w-8 h-8 text-slate-200" />
+                </div>
+                <p className="font-bold text-slate-800 text-lg">Belum Ada Riwayat</p>
+                <p className="text-xs text-slate-500 font-medium max-w-[200px]">Semua pesanan yang kamu selesaikan akan muncul di sini.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 pb-10">
+                {historyOrders.map(order => (
+                  <Card key={order.id} className="border-0 shadow-sm ring-1 ring-slate-100 rounded-2xl overflow-hidden bg-white/50 backdrop-blur-sm">
+                    <CardContent className="p-4 flex items-center justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">
+                            {order.profiles?.name || 'User'} • {new Date(order.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                          </span>
+                        </div>
+                        <h4 className="font-bold text-slate-800 truncate leading-tight">{order.food_name}</h4>
+                        <p className="text-slate-500 font-bold text-xs">{formatRupiah(order.price)}</p>
+                      </div>
+                      <div className="shrink-0 flex flex-col items-end gap-2">
+                        <div className="flex items-center gap-1.5 bg-green-50 text-green-600 px-2.5 py-1 rounded-full border border-green-100">
+                          <CheckCircle className="w-3 h-3" />
+                          <span className="text-[9px] font-black uppercase tracking-widest">Selesai</span>
+                        </div>
+                        <span className="text-[9px] font-bold text-slate-400">{new Date(order.updated_at || order.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {totalHistoryCount > 10 && (
+              <div className="flex items-center justify-between pt-2 pb-12">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={historyPage === 1}
+                  onClick={() => setHistoryPage(p => p - 1)}
+                  className="rounded-xl font-bold bg-white border-slate-100 text-slate-500 h-10 px-4 active:scale-95 transition-all"
+                >
+                  <ChevronLeft className="w-4 h-4 mr-1 text-amber-500" /> Prev
+                </Button>
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Halaman</span>
+                  <span className="text-sm font-black text-slate-800">{historyPage} <span className="text-slate-300 mx-1">/</span> {Math.ceil(totalHistoryCount / 10)}</span>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={historyPage >= Math.ceil(totalHistoryCount / 10)}
+                  onClick={() => setHistoryPage(p => p + 1)}
+                  className="rounded-xl font-bold bg-white border-slate-100 text-slate-500 h-10 px-4 active:scale-95 transition-all"
+                >
+                  Next <ChevronRight className="w-4 h-4 ml-1 text-amber-500" />
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === 'menu' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
@@ -491,6 +653,16 @@ export default function OBDashboard({ session }: { session: Session }) {
               }} className="rounded-2xl h-12 px-6 bg-amber-500 hover:bg-amber-600 text-white font-black shadow-lg shadow-amber-500/30 flex items-center gap-2">
                 <Plus className="w-5 h-5" /> TAMBAH MENU
               </Button>
+            </div>
+
+            <div className="flex gap-2 pb-4">
+               <Button 
+                 variant="outline" 
+                 onClick={() => setIsCategoryDrawerOpen(true)}
+                 className="rounded-xl font-bold text-xs border-slate-200 text-slate-500 flex items-center gap-2 hover:bg-slate-50"
+               >
+                 📂 KELOLA KATEGORI
+               </Button>
             </div>
 
             <div className="grid grid-cols-1 gap-3 pb-10">
@@ -541,6 +713,20 @@ export default function OBDashboard({ session }: { session: Session }) {
 
           <div className="space-y-6 py-6">
             <div className="space-y-2">
+              <Label className="text-slate-700 font-bold text-sm ml-1 uppercase tracking-widest">Kategori</Label>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {dbCategories.map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.name)}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black border transition-all ${selectedCategory === cat.name ? 'bg-amber-500 border-amber-600 text-white shadow-md scale-105' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-amber-200'}`}
+                  >
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
               <Label className="text-slate-700 font-bold text-sm ml-1 uppercase tracking-widest">Nama Makanan</Label>
               <Input 
                 placeholder="Contoh: Nasi Goreng Gila" 
@@ -581,6 +767,20 @@ export default function OBDashboard({ session }: { session: Session }) {
 
           <div className="space-y-6 py-6">
             <div className="space-y-2">
+              <Label className="text-slate-700 font-bold text-sm ml-1 uppercase tracking-widest">Kategori</Label>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {dbCategories.map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.name)}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black border transition-all ${selectedCategory === cat.name ? 'bg-amber-500 border-amber-600 text-white shadow-md scale-105' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-amber-200'}`}
+                  >
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
               <Label className="text-slate-700 font-bold text-sm ml-1 uppercase tracking-widest">Nama Makanan</Label>
               <Input 
                 value={newFoodName}
@@ -607,7 +807,60 @@ export default function OBDashboard({ session }: { session: Session }) {
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
-      {/* OB Detail Drawer */}
+      {/* Category Management Drawer */}
+      <Drawer open={isCategoryDrawerOpen} onOpenChange={setIsCategoryDrawerOpen}>
+        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6">
+          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-8" />
+          <DrawerHeader className="px-0">
+            <DrawerTitle className="text-2xl font-black text-slate-800">Kelola Kategori 📂</DrawerTitle>
+            <DrawerDescription className="text-slate-500 font-medium">Tambah atau hapus kategori menu jajan.</DrawerDescription>
+          </DrawerHeader>
+
+          <div className="space-y-6 py-6">
+            <div className="space-y-3">
+              <Label className="text-slate-700 font-bold text-xs uppercase tracking-widest">Kategori Saat Ini</Label>
+              <div className="flex flex-wrap gap-2">
+                {dbCategories.map(cat => (
+                  <div key={cat.id} className="group flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-xl border border-slate-200">
+                    <span className="text-xs font-bold text-slate-700">{cat.name}</span>
+                    {cat.name !== 'Lainnya' && (
+                      <button 
+                         onClick={() => deleteCategory(cat.id, cat.name)}
+                         className="text-slate-400 hover:text-red-500 transition-colors"
+                      >
+                         <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-4 border-t border-slate-100">
+              <Label className="text-slate-700 font-bold text-xs uppercase tracking-widest">Tambah Kategori Baru</Label>
+              <div className="flex gap-2">
+                <Input 
+                  placeholder="Contoh: Takoyaki" 
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  className="rounded-xl h-12 bg-slate-50 border-slate-100"
+                />
+                <Button 
+                  onClick={handleAddCategory}
+                  disabled={isBusy}
+                  className="rounded-xl bg-slate-900 text-white px-6 font-bold"
+                >
+                  TAMBAH
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <DrawerFooter className="px-0 pb-8">
+            <Button variant="ghost" onClick={() => setIsCategoryDrawerOpen(false)} className="w-full h-12 text-slate-400 font-bold uppercase tracking-widest text-[10px]">Tutup</Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
       <Drawer open={!!selectedObForDetail} onOpenChange={() => setSelectedObForDetail(null)}>
         <DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6 pb-8">
           <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />

@@ -8,8 +8,8 @@ import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../components/ui/drawer'
 
-export type Menu = { id: string; food_name: string; price: number }
-export type Order = { id: string; food_name: string; price: number; created_at: string; order_status: string; payment_method: string; payment_status: string; catatan: string | null }
+export type Menu = { id: string; food_name: string; price: number; category: string }
+export type Order = { id: string; food_name: string; price: number; created_at: string; order_status: string; payment_method: string; payment_status: string; catatan: string | null; profiles?: { name: string } }
 
 function OrderCard({ order, formatRupiah }: { order: Order; formatRupiah: (n: number) => string }) {
   const isAutoDone = new Date().getTime() - new Date(order.created_at).getTime() > 24 * 60 * 60 * 1000
@@ -59,6 +59,12 @@ export default function UserDashboard({ session }: { session: Session }) {
   const [orders, setOrders] = useState<Order[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState<'home' | 'riwayat'>('home')
+  const [communityOrders, setCommunityOrders] = useState<any[]>([])
+  const [isCommunityDrawerOpen, setIsCommunityDrawerOpen] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState('Semua')
+  const [dbCategories, setDbCategories] = useState<string[]>([])
+  
+  const categories = ['Semua', ...dbCategories]
   
   // Cart state
   const [cart, setCart] = useState<Menu[]>([])
@@ -79,6 +85,8 @@ export default function UserDashboard({ session }: { session: Session }) {
     fetchProfile()
     fetchMenus()
     fetchOrders()
+    fetchCommunityOrders()
+    fetchCategories()
 
     // Real-time subscription for this user's orders
     const channel = supabase
@@ -99,10 +107,52 @@ export default function UserDashboard({ session }: { session: Session }) {
       })
       .subscribe()
 
+    // Real-time for community inspiration feed
+    const communityChannel = supabase
+      .channel('public:orders:all')
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'orders' 
+      }, async (payload) => {
+        // We refetch to get the profile name (since it's not in the payload)
+        const { data, error } = await supabase
+          .from('orders')
+          .select('*, profiles(name)')
+          .eq('id', payload.new.id)
+          .single()
+        
+        if (data && !error) {
+          setCommunityOrders(current => [data, ...current].slice(0, 10))
+        }
+      })
+      .subscribe()
+
     return () => {
       supabase.removeChannel(channel)
+      supabase.removeChannel(communityChannel)
     }
   }, [session.user.id])
+
+  const fetchCategories = async () => {
+    const { data } = await supabase
+      .from('categories')
+      .select('name')
+      .order('name', { ascending: true })
+    if (data) setDbCategories(data.map(c => c.name))
+  }
+
+  const fetchCommunityOrders = async () => {
+    // Get last 50 orders from last 24 hours
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const { data } = await supabase
+      .from('orders')
+      .select('*, profiles(name)')
+      .gt('created_at', oneDayAgo)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (data) setCommunityOrders(data)
+  }
 
   const fetchProfile = async () => {
     const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
@@ -151,7 +201,8 @@ export default function UserDashboard({ session }: { session: Session }) {
     const newItem: Menu = {
       id: `manual-${Date.now()}`,
       food_name: manualFoodName,
-      price: Number(manualFoodPrice)
+      price: Number(manualFoodPrice),
+      category: 'Lainnya'
     }
     setCart(prev => [...prev, newItem])
     setManualFoodName('')
@@ -230,6 +281,19 @@ export default function UserDashboard({ session }: { session: Session }) {
     toast.success(`${label} disalin ke clipboard!`)
   }
 
+  const getRelativeTime = (dateString: string) => {
+    const now = new Date()
+    const past = new Date(dateString)
+    const diffInMs = now.getTime() - past.getTime()
+    const diffInMins = Math.floor(diffInMs / (1000 * 60))
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60))
+
+    if (diffInMins < 1) return "Baru saja"
+    if (diffInMins < 60) return `${diffInMins} menit lalu`
+    if (diffInHours < 24) return `${diffInHours} jam lalu`
+    return "Kemarin"
+  }
+
   const formatRupiah = (number: number) => {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number)
   }
@@ -286,6 +350,46 @@ export default function UserDashboard({ session }: { session: Session }) {
               <p className="text-slate-500 font-medium">Lagi pengen makan apa hari ini?</p>
             </div>
 
+            {/* Intip Pesanan CTA Card */}
+            <div 
+              onClick={() => setIsCommunityDrawerOpen(true)}
+              className="bg-linear-to-br from-amber-500 to-orange-600 rounded-[32px] p-6 shadow-xl shadow-amber-500/20 relative overflow-hidden group cursor-pointer active:scale-[0.98] transition-all"
+            >
+              <div className="absolute -right-4 -bottom-4 opacity-20 group-hover:scale-110 transition-transform duration-500">
+                <ShoppingBag className="w-32 h-32 text-white" />
+              </div>
+              <div className="relative z-10 flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                    <span className="text-[10px] font-black text-white/80 uppercase tracking-widest">LIVE INSPIRASI</span>
+                  </div>
+                  <h3 className="text-xl font-black text-white leading-tight mb-2">Bingung mau makan apa? 🤔</h3>
+                  <p className="text-white/80 text-xs font-bold flex items-center gap-1.5">
+                    Intip pesanan yang lain <ChevronRight className="w-4 h-4 bg-white/20 rounded-full p-0.5" />
+                  </p>
+                </div>
+                <div className="w-16 h-16 bg-white/15 backdrop-blur-md rounded-2xl flex items-center justify-center text-3xl shadow-inner border border-white/10">
+                   🥘
+                </div>
+              </div>
+              
+              {communityOrders.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-white/10 flex items-center gap-2 overflow-hidden">
+                   <div className="flex -space-x-2 shrink-0">
+                      {communityOrders.slice(0, 3).map((o, idx) => (
+                        <div key={idx} className="w-6 h-6 rounded-full bg-white border-2 border-amber-600 flex items-center justify-center text-[8px] font-black text-amber-700">
+                          {o.profiles?.name?.[0]}
+                        </div>
+                      ))}
+                   </div>
+                   <p className="text-[9px] font-black text-white/70 uppercase tracking-tighter truncate">
+                      Lagi ada {communityOrders.length} orang jajan sekarang!
+                   </p>
+                </div>
+              )}
+            </div>
+
             {/* Pesanan Aktif (Top of Home) */}
             {orders.filter(o => o.order_status === 'waiting').length > 0 && (
               <div>
@@ -327,46 +431,74 @@ export default function UserDashboard({ session }: { session: Session }) {
               </div>
             )}
 
+            {/* Category Chips */}
+            <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide -mx-5 px-5">
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`shrink-0 px-6 py-3 rounded-full text-xs font-black transition-all border ${selectedCategory === cat ? 'bg-amber-500 border-amber-600 text-white shadow-lg shadow-amber-500/20 scale-105' : 'bg-white border-slate-100 text-slate-500 hover:border-amber-200'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
             {/* Menu Tersedia (Grid) */}
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-bold text-slate-800 text-lg">Menu Terpopuler 🔥</h3>
+                <h3 className="font-bold text-slate-800 text-lg">Pilihan Menu 🥙</h3>
               </div>
+              
               <div className="grid grid-cols-2 gap-4">
-                {menus.filter(m => m.food_name.toLowerCase().includes(searchQuery.toLowerCase())).map(m => {
-                  const isInCart = cart.some(c => c.id === m.id)
-                  return (
-                    <div 
-                      key={m.id} 
-                      onClick={() => toggleCart(m)}
-                      className={`rounded-[28px] p-5 border shadow-sm active:scale-95 transition-all cursor-pointer flex flex-col justify-between relative overflow-hidden min-h-[140px] ${isInCart ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500/20' : 'bg-white border-slate-100 hover:border-amber-200'}`}
-                    >
-                      {isInCart && (
-                        <div className="absolute top-0 right-0 p-2 bg-amber-500 text-white rounded-bl-2xl shadow-md">
-                          <CheckCircle className="h-4 w-4" />
-                        </div>
-                      )}
-                      <div className="flex-1">
-                        <div className="w-10 h-10 bg-slate-50 rounded-xl mb-3 flex items-center justify-center text-xl">
-                          🍱
-                        </div>
-                        <h4 className="font-black text-sm text-slate-800 leading-tight tracking-tight line-clamp-2">{m.food_name}</h4>
-                      </div>
-                      <p className="text-amber-600 font-black text-sm mt-3">{formatRupiah(m.price)}</p>
-                    </div>
-                  )
-                })}
-
-                {/* Tambah Manual Button Card */}
+                {/* Tambah Manual Button Card - TOP POSITION */}
                 <div 
                   onClick={() => setIsManualDrawerOpen(true)}
-                  className="rounded-[28px] p-5 border-2 border-dashed border-slate-200 bg-slate-50 active:scale-95 transition-all cursor-pointer flex flex-col items-center justify-center min-h-[140px] text-center group hover:bg-amber-50 hover:border-amber-200"
+                  className="rounded-[32px] p-5 border-2 border-dashed border-amber-200 bg-amber-50/30 flex flex-col items-center justify-center text-center gap-2 cursor-pointer active:scale-95 transition-all group hover:bg-amber-50 hover:border-amber-400 min-h-[160px]"
                 >
-                  <div className="w-12 h-12 bg-white rounded-2xl mb-3 flex items-center justify-center text-slate-300 group-hover:text-amber-500 shadow-sm transition-colors">
+                  <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm text-amber-500 group-hover:scale-110 transition-transform">
                     <Plus className="w-6 h-6" />
                   </div>
-                  <h4 className="font-black text-[10px] text-slate-400 uppercase tracking-widest leading-tight group-hover:text-amber-600">Tambah Menu<br/>Manual</h4>
+                  <p className="text-[10px] font-black text-amber-700 leading-tight uppercase tracking-tight">Ketik Menu<br/>Manual ✏️</p>
                 </div>
+
+                {menus
+                  .filter(m => (selectedCategory === 'Semua' || m.category === selectedCategory))
+                  .filter(m => m.food_name.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .map(m => {
+                    const isInCart = cart.some(c => c.id === m.id)
+                    return (
+                      <div 
+                        key={m.id} 
+                        onClick={() => toggleCart(m)}
+                        className={`rounded-[32px] p-4 border shadow-sm active:scale-95 transition-all cursor-pointer flex flex-col justify-between relative overflow-hidden min-h-[160px] group ${isInCart ? 'border-amber-500 bg-amber-50 ring-4 ring-amber-500/10' : 'bg-white border-slate-100 hover:border-amber-200 hover:shadow-md'}`}
+                      >
+                        {isInCart && (
+                          <div className="absolute top-0 right-0 p-3 bg-amber-500 text-white rounded-bl-[20px] shadow-lg animate-in zoom-in-50 duration-200">
+                            <CheckCircle className="h-4 w-4" />
+                          </div>
+                        )}
+                        
+                        <div>
+                          <div className={`w-12 h-12 rounded-2xl mb-3 flex items-center justify-center text-2xl transition-transform group-hover:rotate-12 ${isInCart ? 'bg-white shadow-sm' : 'bg-slate-50'}`}>
+                            {m.category === 'Minuman' ? '🥤' : m.category === 'Dkriuk' ? '🍗' : m.category === 'Nasi Padang' ? '🍛' : m.category === 'Texeo' ? '🌯' : '🍱'}
+                          </div>
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 block">
+                            {m.category || 'LAINNYA'}
+                          </span>
+                          <h4 className="font-black text-xs text-slate-800 leading-tight tracking-tight line-clamp-2">{m.food_name}</h4>
+                        </div>
+                        
+                        <div className="flex items-center justify-between mt-3">
+                           <p className="text-slate-900 font-black text-sm">{formatRupiah(m.price)}</p>
+                           <div className={`text-[10px] font-black uppercase tracking-tighter ${isInCart ? 'text-amber-600' : 'text-slate-300'}`}>
+                              {isInCart ? 'HAPUS' : 'PILIH'}
+                           </div>
+                        </div>
+                      </div>
+                    )
+                  })
+                }
               </div>
             </div>
           </>
@@ -644,6 +776,76 @@ export default function UserDashboard({ session }: { session: Session }) {
               )}
             </Button>
             <Button variant="ghost" onClick={() => setIsDrawerOpen(false)} className="w-full h-12 text-slate-400 font-bold hover:text-slate-600">Terus Jajan Aja Dulu</Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Community Inspiration Drawer */}
+      <Drawer open={isCommunityDrawerOpen} onOpenChange={setIsCommunityDrawerOpen}>
+        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6 pb-8">
+          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
+          <DrawerHeader className="px-0">
+            <DrawerTitle className="text-2xl font-black text-slate-800 flex items-center gap-2">
+              Intip Pesanan yang Lain 👀
+            </DrawerTitle>
+            <DrawerDescription className="text-slate-500 font-medium italic">
+              "Hmm, temen-temen hari ini makan apa ya?"
+            </DrawerDescription>
+          </DrawerHeader>
+
+          <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto pr-1">
+            {communityOrders.length === 0 ? (
+              <div className="text-center py-10 opacity-50">
+                <p className="text-slate-400 font-bold">Belum ada pesanan masuk pagi ini...</p>
+              </div>
+            ) : (
+              communityOrders.map((commOrder) => (
+                <div 
+                  key={commOrder.id}
+                  className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between gap-4"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <div className="w-4 h-4 bg-amber-100 rounded-full flex items-center justify-center text-[8px] font-black text-amber-700 uppercase">
+                        {commOrder.profiles?.name?.[0] || '?'}
+                      </div>
+                      <span className="text-[10px] font-black text-slate-400 tracking-tighter uppercase truncate">
+                        {commOrder.profiles?.name.split(' ')[0]} • {getRelativeTime(commOrder.created_at)}
+                      </span>
+                    </div>
+                    <h4 className="font-bold text-slate-800 text-sm">{commOrder.food_name}</h4>
+                  </div>
+                  <Button 
+                    size="sm"
+                    onClick={() => {
+                        const menuMatch = menus.find(m => m.food_name === commOrder.food_name)
+                        if (menuMatch) {
+                          toggleCart(menuMatch)
+                          toast.success(`Nyontek pesanan ${commOrder.profiles?.name.split(' ')[0]} dikit! 😂`)
+                        } else {
+                          const manualItem: Menu = {
+                            id: `duplicate-${Date.now()}`,
+                            food_name: commOrder.food_name,
+                            price: commOrder.price,
+                            category: 'Lainnya'
+                          }
+                          setCart(prev => [...prev, manualItem])
+                          toast.success(`Nyontek pesanan ${commOrder.profiles?.name.split(' ')[0]} dikit! 😂`)
+                        }
+                    }}
+                    className="h-8 rounded-xl bg-amber-500 text-white font-black text-[10px] shadow-sm hover:bg-amber-600 transition-all hover:scale-105 active:scale-95"
+                  >
+                    PESEN JUGA
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <DrawerFooter className="px-0 pt-2">
+            <Button onClick={() => setIsCommunityDrawerOpen(false)} className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black text-base shadow-xl active:scale-95 transition-all">
+              TUTUP ✅
+            </Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
