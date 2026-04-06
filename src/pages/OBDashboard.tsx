@@ -58,6 +58,7 @@ export default function OBDashboard({ session }: { session: Session }) {
   const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [isBusy, setIsBusy] = useState(false)
+  const [catFilter, setCatFilter] = useState('Semua')
   const [selectedObForDetail, setSelectedObForDetail] = useState<string | null>(null)
 
   useEffect(() => {
@@ -665,33 +666,54 @@ export default function OBDashboard({ session }: { session: Session }) {
                </Button>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 pb-10">
-              {menus.map(m => (
-                <Card key={m.id} className="border border-slate-100 shadow-xs rounded-2xl overflow-hidden group">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">🥡</div>
-                       <div>
-                          <h4 className="font-bold text-slate-800 leading-tight">{m.food_name}</h4>
-                          <p className="text-amber-600 font-black text-sm">{formatRupiah(m.price)}</p>
-                       </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => openEditMenu(m)} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => deleteMenu(m.id)} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </CardContent>
-                </Card>
+            <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide -mx-6 px-6">
+              {['Semua', ...dbCategories.map(c => c.name)].map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setCatFilter(cat)}
+                  className={`shrink-0 px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${catFilter === cat ? 'bg-amber-500 border-amber-600 text-white shadow-lg shadow-amber-500/20' : 'bg-white border-slate-100 text-slate-500 hover:border-amber-200'}`}
+                >
+                  {cat}
+                </button>
               ))}
-              {menus.length === 0 && (
-                <div className="text-center py-20 bg-white rounded-[32px] border-2 border-slate-100 border-dashed">
-                    <p className="text-slate-400 font-bold italic">Menu kosong. Klik tombol di atas untuk menambah.</p>
-                </div>
-              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 pb-10">
+              {(() => {
+                const filteredMenus = menus.filter(m => catFilter === 'Semua' || m.category === catFilter)
+                if (filteredMenus.length === 0) {
+                  return (
+                    <div className="text-center py-20 bg-white/50 rounded-[32px] border-2 border-slate-100 border-dashed backdrop-blur-sm">
+                      <p className="text-slate-400 font-bold italic">
+                        {catFilter === 'Semua' 
+                          ? "Menu kosong. Klik tombol di atas untuk menambah." 
+                          : `Tidak ada menu di kategori "${catFilter}".`}
+                      </p>
+                    </div>
+                  )
+                }
+                return filteredMenus.map(m => (
+                  <Card key={m.id} className="border border-slate-100 shadow-xs rounded-2xl overflow-hidden group">
+                    <CardContent className="p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                         <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">🥡</div>
+                         <div>
+                            <h4 className="font-bold text-slate-800 leading-tight">{m.food_name}</h4>
+                            <p className="text-amber-600 font-black text-sm">{formatRupiah(m.price)}</p>
+                         </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => openEditMenu(m)} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => deleteMenu(m.id)} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              })()}
             </div>
 
             {/* Footer Credit */}
