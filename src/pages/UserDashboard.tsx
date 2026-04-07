@@ -10,8 +10,10 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, Dr
 
 export type Menu = { id: string; food_name: string; price: number; category: string }
 export type Order = { id: string; food_name: string; price: number; created_at: string; order_status: string; payment_method: string; payment_status: string; catatan: string | null; profiles?: { name: string }; assigned_to_ob?: string }
+export type TardutRequest = { id: string; user_id: string; amount: number; proof_url: string; status: string; created_at: string; profiles?: { name: string }; assigned_to_ob?: string }
 
 import TrackingMap from '../components/TrackingMap'
+import { Banknote, Camera, Check } from 'lucide-react'
 
 function OrderCard({ order, formatRupiah, onTrack }: { order: Order; formatRupiah: (n: number) => string, onTrack?: (ob: string) => void }) {
   const isAutoDone = new Date().getTime() - new Date(order.created_at).getTime() > 24 * 60 * 60 * 1000
@@ -93,6 +95,14 @@ export default function UserDashboard({ session }: { session: Session }) {
   const [manualFoodName, setManualFoodName] = useState('')
   const [manualFoodPrice, setManualFoodPrice] = useState('')
   const [trackingOb, setTrackingOb] = useState<string | null>(null)
+  
+  // Tardut state
+  const [isTardutDrawerOpen, setIsTardutDrawerOpen] = useState(false)
+  const [tardutAmount, setTardutAmount] = useState<number | null>(null)
+  const [customTardutAmount, setCustomTardutAmount] = useState('')
+  const [tardutProofFile, setTardutProofFile] = useState<File | null>(null)
+  const [isSubmittingTardut, setIsSubmittingTardut] = useState(false)
+  const tardutFileInputRef = useRef<HTMLInputElement>(null)
   
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -313,6 +323,55 @@ export default function UserDashboard({ session }: { session: Session }) {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number)
   }
 
+  const handleSubmitTardut = async () => {
+    const finalAmount = tardutAmount || Number(customTardutAmount)
+    if (!finalAmount || finalAmount <= 0) {
+      toast.error("Pilih atau masukkan nominal yang valid")
+      return
+    }
+
+    if (!tardutProofFile) {
+      toast.error("Mohon upload bukti transfer ke OB")
+      return
+    }
+
+    setIsSubmittingTardut(true)
+    try {
+      // 1. Upload proof
+      const fileExt = tardutProofFile.name.split('.').pop()
+      const fileName = `tardut-${Math.random()}.${fileExt}`
+      const filePath = `${session.user.id}/${fileName}`
+      
+      const { error: uploadError } = await supabase.storage
+        .from('payment-proofs')
+        .upload(filePath, tardutProofFile)
+      
+      if (uploadError) throw uploadError
+      
+      const { data: { publicUrl } } = supabase.storage.from('payment-proofs').getPublicUrl(filePath)
+
+      // 2. Insert request
+      const { error: tardutErr } = await supabase.from('tardut_requests').insert({
+        user_id: session.user.id,
+        amount: finalAmount,
+        proof_url: publicUrl,
+        status: 'waiting'
+      })
+
+      if (tardutErr) throw tardutErr
+
+      toast.success("Permintaan Tardut terkirim! Silakan tunggu OB.")
+      setIsTardutDrawerOpen(false)
+      setTardutAmount(null)
+      setCustomTardutAmount('')
+      setTardutProofFile(null)
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setIsSubmittingTardut(false)
+    }
+  }
+
   const totalPrice = cart.reduce((acc, item) => acc + item.price, 0)
 
   return (
@@ -403,6 +462,23 @@ export default function UserDashboard({ session }: { session: Session }) {
                    </p>
                 </div>
               )}
+            </div>
+
+            {/* QUICK ACTIONS: Tardut */}
+            <div className="grid grid-cols-1 gap-4">
+               <div 
+                  onClick={() => setIsTardutDrawerOpen(true)}
+                  className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:border-amber-200 transition-all cursor-pointer group active:scale-95"
+               >
+                  <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-2xl group-hover:bg-amber-500 group-hover:text-white transition-colors duration-300">
+                    <Banknote className="w-6 h-6 text-amber-600 group-hover:text-white transition-colors" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-black text-slate-800 text-sm tracking-tight">Tardut (Tarik Duit) 🚀</h4>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Nitip tarik tunai ke OB</p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-amber-500 transition-colors" />
+               </div>
             </div>
 
             {/* Pesanan Aktif (Top of Home) */}
@@ -892,6 +968,105 @@ export default function UserDashboard({ session }: { session: Session }) {
              <Button onClick={() => setTrackingOb(null)} className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black text-base shadow-xl active:scale-95 transition-all">
                OK, SIAP! ✅
              </Button>
+           </DrawerFooter>
+         </DrawerContent>
+       </Drawer>
+
+       {/* TARDUT DRAWER */}
+       <Drawer open={isTardutDrawerOpen} onOpenChange={setIsTardutDrawerOpen}>
+         <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-12 border-0 shadow-2xl">
+           <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
+           <DrawerHeader className="px-0">
+             <DrawerTitle className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                Tardut (Tarik Duit) 💳
+             </DrawerTitle>
+             <DrawerDescription className="text-slate-500 font-medium">
+                Pilih nominal yang ingin ditarik tunai.
+             </DrawerDescription>
+           </DrawerHeader>
+
+           <div className="space-y-6 pt-4 max-h-[70vh] overflow-y-auto pr-1">
+              {/* Nominal Options */}
+              <div className="grid grid-cols-2 gap-3">
+                {[50000, 100000, 150000, 200000, 250000, 300000].map(amount => (
+                  <button 
+                    key={amount}
+                    onClick={() => {
+                      setTardutAmount(amount)
+                      setCustomTardutAmount('')
+                    }}
+                    className={`h-14 rounded-2xl border-2 font-black transition-all flex items-center justify-center gap-2 ${tardutAmount === amount ? 'border-amber-500 bg-amber-50 text-amber-700 shadow-md ring-2 ring-amber-500/10' : 'border-slate-100 bg-white text-slate-500'}`}
+                  >
+                    {formatRupiah(amount).replace('Rp', '')}
+                    {tardutAmount === amount && <Check className="w-4 h-4" />}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom Nominal */}
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Atau Masukan Nominal Lain</Label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400">Rp</span>
+                  <Input 
+                    type="number"
+                    placeholder="Contoh: 75000"
+                    value={customTardutAmount}
+                    onChange={(e) => {
+                      setCustomTardutAmount(e.target.value)
+                      setTardutAmount(null)
+                    }}
+                    className="h-14 pl-12 rounded-2xl bg-slate-50 border-slate-100 font-bold focus:ring-amber-500/20"
+                  />
+                </div>
+              </div>
+
+              {/* Upload Proof */}
+              <div className="space-y-3 bg-amber-50 p-6 rounded-[32px] border border-amber-100">
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="w-8 h-8 bg-amber-500 text-white rounded-xl flex items-center justify-center">
+                    <Camera className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="font-black text-slate-800 text-xs">Upload Bukti Transfer</p>
+                    <p className="text-[9px] text-amber-700 font-bold uppercase tracking-tighter">Wajib sebelum diproses OB</p>
+                  </div>
+                </div>
+                
+                <input 
+                  type="file"
+                  className="hidden"
+                  ref={tardutFileInputRef}
+                  accept="image/*"
+                  onChange={(e) => setTardutProofFile(e.target.files?.[0] || null)}
+                />
+                
+                <Button 
+                  onClick={() => tardutFileInputRef.current?.click()}
+                  variant="outline"
+                  className={`w-full h-14 border-dashed border-2 rounded-2xl font-black transition-all ${tardutProofFile ? 'border-green-500 bg-green-50 text-green-700' : 'border-amber-300 bg-white text-amber-700 hover:bg-amber-50'}`}
+                >
+                  {tardutProofFile ? `✅ ${tardutProofFile.name}` : 'AMBIL FOTO BUKTI'}
+                </Button>
+              </div>
+           </div>
+
+           <DrawerFooter className="px-0 pt-6">
+              <Button 
+                onClick={handleSubmitTardut}
+                disabled={isSubmittingTardut || (!tardutAmount && !customTardutAmount) || !tardutProofFile}
+                className="w-full h-16 rounded-3xl bg-slate-900 text-white font-black text-lg shadow-2xl shadow-slate-900/40 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {isSubmittingTardut ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Memproses...
+                  </div>
+                ) : (
+                  'KIRIM PERMINTAAN ✅'
+                )}
+              </Button>
+              <Button variant="ghost" onClick={() => setIsTardutDrawerOpen(false)} className="w-full h-12 text-slate-400 font-bold hover:text-slate-600 uppercase tracking-widest text-[10px]">Batal</Button>
            </DrawerFooter>
          </DrawerContent>
        </Drawer>
