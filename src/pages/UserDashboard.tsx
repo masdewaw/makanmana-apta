@@ -158,12 +158,12 @@ export default function UserDashboard({ session }: { session: Session }) {
   }
 
   const fetchCommunityOrders = async () => {
-    // Get last 50 orders from last 24 hours
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    // Get last 50 orders from last 2 hours
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
       .from('orders')
       .select('*, profiles(name)')
-      .gt('created_at', oneDayAgo)
+      .gt('created_at', twoHoursAgo)
       .order('created_at', { ascending: false })
       .limit(50)
     if (data) setCommunityOrders(data)

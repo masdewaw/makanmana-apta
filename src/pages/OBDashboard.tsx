@@ -209,13 +209,21 @@ export default function OBDashboard({ session }: { session: Session }) {
   }
 
   const fetchActiveOrders = async () => {
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    // Proactive cleanup of orders older than 4 hours
+    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
     
+    // Update old orders to 'done' and 'paid'
+    await supabase
+      .from('orders')
+      .update({ order_status: 'done', payment_status: 'paid' })
+      .eq('order_status', 'waiting')
+      .lt('created_at', fourHoursAgo)
+
     const { data } = await supabase
       .from('orders')
       .select('*, profiles(name)')
       .eq('order_status', 'waiting')
-      .gt('created_at', yesterday)
+      .gt('created_at', fourHoursAgo)
       .order('created_at', { ascending: false })
       
     if (data) setOrders(data)
