@@ -199,10 +199,15 @@ export default function UserDashboard({ session }: { session: Session }) {
   }
 
   const fetchOrders = async () => {
+    // 5 hari kerja (kurang lebih 7 hari kalender)
+    const sevenDaysAgo = new Date()
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    
     const { data } = await supabase
       .from('orders')
       .select('*')
       .eq('user_id', session.user.id)
+      .gte('created_at', sevenDaysAgo.toISOString())
       .order('created_at', { ascending: false })
     if (data) setOrders(data)
   }
@@ -554,8 +559,11 @@ export default function UserDashboard({ session }: { session: Session }) {
                 </div>
 
                 {menus
-                  .filter(m => (selectedCategory === 'Semua' || m.category === selectedCategory))
-                  .filter(m => m.food_name.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .filter(m => {
+                    const matchSearch = (m.food_name || '').toLowerCase().includes((searchQuery || '').toLowerCase())
+                    const matchCat = selectedCategory === 'Semua' || m.category === selectedCategory
+                    return searchQuery ? matchSearch : matchCat
+                  })
                   .map(m => {
                     const isInCart = cart.some(c => c.id === m.id)
                     return (
@@ -599,6 +607,10 @@ export default function UserDashboard({ session }: { session: Session }) {
             <div>
               <h1 className="text-2xl font-black text-slate-800 tracking-tight mb-1">Riwayat Makan 🕰️</h1>
               <p className="text-slate-500 font-medium">List semua jajan yang pernah kamu pesan.</p>
+              <div className="mt-3 bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold p-3 rounded-xl flex items-center gap-2">
+                <span className="text-lg">ℹ️</span>
+                Riwayat hanya menampilkan pesanan dalam 5 hari kerja terakhir (mingguan).
+              </div>
             </div>
 
             {orders.length === 0 ? (
