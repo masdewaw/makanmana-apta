@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { LogOut, CheckCircle, MapPin, Search, ChevronRight, Star, ShoppingBag, Trash2, CreditCard, Wallet, Plus, Copy } from 'lucide-react'
+import { LogOut, CheckCircle, MapPin, Search, ChevronRight, Star, ShoppingBag, Trash2, CreditCard, Wallet, Plus, Copy, Heart } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -79,8 +79,9 @@ export default function UserDashboard({ session }: { session: Session }) {
   const [isCommunityDrawerOpen, setIsCommunityDrawerOpen] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('Semua')
   const [dbCategories, setDbCategories] = useState<string[]>([])
+  const [favorites, setFavorites] = useState<string[]>([])
   
-  const categories = ['Semua', ...dbCategories]
+  const categories = ['Semua', '🌟 Favoritku', ...dbCategories]
   
   // Cart state
   const [cart, setCart] = useState<Menu[]>([])
@@ -112,6 +113,7 @@ export default function UserDashboard({ session }: { session: Session }) {
     fetchOrders()
     fetchCommunityOrders()
     fetchCategories()
+    fetchFavorites()
 
     // Real-time subscription for this user's orders
     const channel = supabase
@@ -165,6 +167,14 @@ export default function UserDashboard({ session }: { session: Session }) {
       .select('name')
       .order('name', { ascending: true })
     if (data) setDbCategories(data.map(c => c.name))
+  }
+
+  const fetchFavorites = async () => {
+    const { data } = await supabase
+      .from('favorites')
+      .select('menu_id')
+      .eq('user_id', session.user.id)
+    if (data) setFavorites(data.map(f => f.menu_id))
   }
 
   const fetchCommunityOrders = async () => {
@@ -221,6 +231,22 @@ export default function UserDashboard({ session }: { session: Session }) {
         return [...prev, menu]
       }
     })
+  }
+
+  const handleToggleFavorite = async (e: React.MouseEvent, menuId: string) => {
+    e.stopPropagation() // Prevent adding to cart when clicking heart
+    const isFavorite = favorites.includes(menuId)
+    
+    // Optimistic update
+    if (isFavorite) {
+      setFavorites(prev => prev.filter(id => id !== menuId))
+      await supabase.from('favorites').delete().eq('user_id', session.user.id).eq('menu_id', menuId)
+      toast.success("Dihapus dari favorit!")
+    } else {
+      setFavorites(prev => [...prev, menuId])
+      await supabase.from('favorites').insert({ user_id: session.user.id, menu_id: menuId })
+      toast.success("Ditambahkan ke favorit!")
+    }
   }
 
   const handleAddToCartManual = () => {
@@ -561,7 +587,9 @@ export default function UserDashboard({ session }: { session: Session }) {
                 {menus
                   .filter(m => {
                     const matchSearch = (m.food_name || '').toLowerCase().includes((searchQuery || '').toLowerCase())
-                    const matchCat = selectedCategory === 'Semua' || m.category === selectedCategory
+                    const matchCat = selectedCategory === 'Semua' 
+                                  || (selectedCategory === '🌟 Favoritku' && favorites.includes(m.id))
+                                  || m.category === selectedCategory
                     return searchQuery ? matchSearch : matchCat
                   })
                   .map(m => {
@@ -577,6 +605,14 @@ export default function UserDashboard({ session }: { session: Session }) {
                             <CheckCircle className="h-4 w-4" />
                           </div>
                         )}
+                        <div className="absolute top-0 left-0 p-3 z-10">
+                           <button 
+                             onClick={(e) => handleToggleFavorite(e, m.id)}
+                             className={`p-1.5 rounded-full backdrop-blur-sm transition-all shadow-sm ${favorites.includes(m.id) ? 'bg-pink-50 text-pink-500' : 'bg-white/50 text-slate-300 hover:text-pink-400 hover:bg-white'}`}
+                           >
+                              <Heart className={`w-4 h-4 ${favorites.includes(m.id) ? 'fill-pink-500' : ''}`} />
+                           </button>
+                        </div>
                         
                         <div>
                           <div className={`w-12 h-12 rounded-2xl mb-3 flex items-center justify-center text-2xl transition-transform group-hover:rotate-12 ${isInCart ? 'bg-white shadow-sm' : 'bg-slate-50'}`}>
