@@ -16,43 +16,47 @@ export default function AuthPage() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!phone.startsWith('08')) {
       toast.error('Nomor handphone harus diawali dengan 08')
       return
     }
-    
+
     // Virtual Email for Supabase Auth bypass
     const email = `${phone}@makanmana.com`
-    
+
     setLoading(true)
-    
+
     try {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw new Error("Akses ditolak. Nomor HP atau password salah.")
       } else {
-        const { error: signUpError, data } = await supabase.auth.signUp({ 
-          email, 
-          password 
+        const { error: signUpError, data } = await supabase.auth.signUp({
+          email,
+          password
         })
         if (signUpError) throw new Error(signUpError.message)
-        
+
         if (data.user) {
           // Create profile
           const { error: profileError } = await supabase.from('profiles').insert([
             { id: data.user.id, name: fullName }
           ])
           if (profileError) throw profileError
-          
+
           toast.success('Pendaftaran berhasil! Silakan masuk.')
           setIsLogin(true)
           setPassword('')
         }
       }
     } catch (err: any) {
+      console.error('[Auth Error]', err)
+
       if (err.message?.includes('rate limit')) {
         toast.error('Terlalu banyak percobaan pendaftaran. Mohon tunggu beberapa menit atau gunakan akun OB yang sudah tersedia.')
+      } else if (err.message?.includes('Failed to fetch') || err.message?.includes('JSON')) {
+        toast.error('Koneksi ke server gagal. Pastikan internet stabil atau coba beberapa saat lagi.')
       } else {
         toast.error(err.message || 'Terjadi kesalahan sistem.')
       }

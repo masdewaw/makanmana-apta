@@ -2,18 +2,21 @@ import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { LogOut, CheckCircle, MapPin, Search, ChevronRight, Star, ShoppingBag, Trash2, CreditCard, Wallet, Plus, Copy, Heart } from 'lucide-react'
+import { 
+  LogOut, CheckCircle, MapPin, Search, ChevronRight, Star, ShoppingBag, 
+  Trash2, CreditCard, Wallet, Plus, Copy, Heart, ChevronLeft, 
+  Camera, Zap, Check, Banknote, Clock, Users, ChevronDown
+} from 'lucide-react'
+import Tesseract from 'tesseract.js';
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../components/ui/drawer'
+import TrackingMap from '../components/TrackingMap'
 
 export type Menu = { id: string; food_name: string; price: number; category: string }
-export type Order = { id: string; food_name: string; price: number; created_at: string; order_status: string; payment_method: string; payment_status: string; catatan: string | null; profiles?: { name: string }; assigned_to_ob?: string }
+export type Order = { id: string; food_name: string; price: number; created_at: string; order_status: string; payment_method: string; payment_status: string; catatan: string | null; profiles?: { name: string }; assigned_to_ob?: string; transfer_to?: string }
 export type TardutRequest = { id: string; user_id: string; amount: number; proof_url: string; status: string; created_at: string; profiles?: { name: string }; assigned_to_ob?: string }
-
-import TrackingMap from '../components/TrackingMap'
-import { Banknote, Camera, Check } from 'lucide-react'
 
 function OrderCard({ order, formatRupiah, onTrack }: { order: Order; formatRupiah: (n: number) => string, onTrack?: (ob: string) => void }) {
   const isAutoDone = new Date().getTime() - new Date(order.created_at).getTime() > 24 * 60 * 60 * 1000
@@ -75,6 +78,7 @@ export default function UserDashboard({ session }: { session: Session }) {
   const [orders, setOrders] = useState<Order[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState<'home' | 'riwayat'>('home')
+  const [activeView, setActiveView] = useState<'personal' | 'teman_makan' | 'split_bill'>('personal')
   const [communityOrders, setCommunityOrders] = useState<any[]>([])
   const [isCommunityDrawerOpen, setIsCommunityDrawerOpen] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('Semua')
@@ -88,8 +92,35 @@ export default function UserDashboard({ session }: { session: Session }) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [catatan, setCatatan] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer'>('transfer')
+  const [transferTo, setTransferTo] = useState<'Bahul' | 'Masber' | null>(null)
   const [proofFile, setProofFile] = useState<File | null>(null)
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
+  
+  // Teman Makan States
+  const [tmGroups, setTmGroups] = useState<any[]>([])
+  const [activeTmGroup, setActiveTmGroup] = useState<any | null>(null)
+  const [tmOrders, setTmOrders] = useState<any[]>([])
+  const [isTmCreateOpen, setIsTmCreateOpen] = useState(false)
+  const [newTmTitle, setNewTmTitle] = useState('')
+  const [newTmBank, setNewTmBank] = useState('')
+  const [newTmDeadline, setNewTmDeadline] = useState('')
+  const [tmCreating, setTmCreating] = useState(false)
+  const [joinTmItemName, setJoinTmItemName] = useState('')
+  const [joinTmItemPrice, setJoinTmItemPrice] = useState('')
+
+  // Split Bill States
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [splitItems, setSplitItems] = useState<{name: string, price: number, users: string[], itemType: 'food' | 'shared'}[]>([])
+  const [ocrImage, setOcrImage] = useState<string | null>(null)
+  const [isOcrDrawerOpen, setIsOcrDrawerOpen] = useState(false)
+  const [splitBills, setSplitBills] = useState<any[]>([])
+  const [selectedSplitBill, setSelectedSplitBill] = useState<any | null>(null)
+  const [isRecapDrawerOpen, setIsRecapDrawerOpen] = useState(false)
+  const [recapItems, setRecapItems] = useState<any[]>([])
+  const [allProfiles, setAllProfiles] = useState<{id: string, name: string}[]>([])
+  const [itemAssignments, setItemAssignments] = useState<Record<number, string>>({})
+  const [assignmentStep, setAssignmentStep] = useState<'edit' | 'assign' | 'payment' | 'summary'>('edit')
+  const [splitBillPaymentInfo, setSplitBillPaymentInfo] = useState('')
 
   // Manual entry state
   const [isManualDrawerOpen, setIsManualDrawerOpen] = useState(false)
@@ -114,6 +145,9 @@ export default function UserDashboard({ session }: { session: Session }) {
     fetchCommunityOrders()
     fetchCategories()
     fetchFavorites()
+    fetchSplitBills()
+    fetchAllProfiles()
+    fetchTmGroups()
 
     // Real-time subscription for this user's orders
     const channel = supabase
@@ -279,9 +313,15 @@ export default function UserDashboard({ session }: { session: Session }) {
       return
     }
 
-    if (paymentMethod === 'transfer' && !proofFile) {
-      toast.error("Mohon upload bukti transfer")
-      return
+    if (paymentMethod === 'transfer') {
+      if (!transferTo) {
+        toast.error("Pilih tujuan transfer (Bahul/Masber)!")
+        return
+      }
+      if (!proofFile) {
+        toast.error("Mohon upload bukti transfer")
+        return
+      }
     }
 
     setIsPlacingOrder(true)
@@ -311,7 +351,8 @@ export default function UserDashboard({ session }: { session: Session }) {
         payment_status: 'pending',
         order_status: 'waiting',
         proof_url: proofUrl,
-        catatan: catatan || null
+        catatan: catatan || null,
+        transfer_to: paymentMethod === 'transfer' ? transferTo : null
       }))
 
       const { error: orderErr } = await supabase.from('orders').insert(orderRecords)
@@ -403,6 +444,310 @@ export default function UserDashboard({ session }: { session: Session }) {
     }
   }
 
+  // Teman Makan Logic
+  const fetchTmGroups = async () => {
+    const { data } = await supabase.from('teman_makan_groups').select('*, profiles(name)').in('status', ['open', 'finished']).order('created_at', { ascending: false })
+    if (data) setTmGroups(data)
+  }
+
+  const fetchTmOrders = async (groupId: string) => {
+    const { data } = await supabase.from('teman_makan_orders').select('*, profiles(name)').eq('group_id', groupId)
+    if (data) setTmOrders(data)
+  }
+
+  const handleCreateTmGroup = async () => {
+    if (!newTmTitle.trim()) {
+      toast.error("Judul room harus diisi!")
+      return
+    }
+
+    setTmCreating(true)
+    try {
+      let deadlineTimestamp = null
+      if (newTmDeadline) {
+        const today = new Date()
+        const [hours, minutes] = newTmDeadline.split(':')
+        today.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0)
+        deadlineTimestamp = today.toISOString()
+      }
+
+      const { data, error } = await supabase.from('teman_makan_groups').insert([{
+        creator_id: session.user.id,
+        title: newTmTitle.trim(),
+        bank_info: newTmBank.trim(),
+        deadline: deadlineTimestamp,
+        status: 'open'
+      }]).select().single()
+
+      if (error) throw error
+
+      toast.success("Room Teman Makan Dibuat! 🎉")
+      setIsTmCreateOpen(false)
+      setNewTmTitle('')
+      setNewTmBank('')
+      setNewTmDeadline('')
+      setTmOrders([])
+      setActiveTmGroup(data)
+      fetchTmGroups()
+    } catch (err: any) {
+      toast.error("Gagal buat room: " + err.message)
+    } finally {
+      setTmCreating(false)
+    }
+  }
+
+
+
+  const fetchSplitBills = async () => {
+    const { data } = await supabase
+      .from('split_bills')
+      .select('*, profiles:creator_id(name)')
+      .in('status', ['open', 'finished'])
+      .order('created_at', { ascending: false })
+    setSplitBills(data || [])
+  }
+
+  const handleFinishSplitBill = async (billId: string) => {
+    const { error } = await supabase.from('split_bills').update({ status: 'finished' }).eq('id', billId)
+    if (error) {
+      toast.error('Gagal menutup patungan')
+    } else {
+      toast.success('Patungan ditutup!')
+      fetchSplitBills()
+    }
+  }
+
+  const fetchAllProfiles = async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, name')
+      .eq('role', 'user')
+      .order('name')
+    if (data) setAllProfiles(data)
+  }
+
+  const fetchRecapItems = async (billId: string) => {
+    const { data } = await supabase
+      .from('split_bill_items')
+      .select('*, profiles:user_id(name)')
+      .eq('split_bill_id', billId)
+    setRecapItems(data || [])
+  }
+
+  const handleDeleteTmOrder = async (orderId: string) => {
+    if (!activeTmGroup) return
+
+    const { error } = await supabase.from('teman_makan_orders').delete().eq('id', orderId)
+
+    if (error) {
+      toast.error("Gagal menghapus pesanan")
+    } else {
+      toast.success("Pesanan berhasil dihapus!")
+      fetchTmOrders(activeTmGroup.id) // Refresh orders
+    }
+  }
+
+  const handleJoinTmOrder = async (menuName: string, price: number) => {
+    if (!activeTmGroup) return
+
+    const { error } = await supabase.from('teman_makan_orders').insert([{
+      group_id: activeTmGroup.id,
+      user_id: session.user.id,
+      menu_name: menuName,
+      price: price
+    }])
+
+    if (error) {
+      toast.error("Gagal join order")
+    } else {
+      toast.success("Pesanan ditambahkan ke grup!")
+      fetchTmOrders(activeTmGroup.id) // Refresh orders
+    }
+  }
+
+  const handleSelectTmGroup = async (group: any) => {
+    setActiveTmGroup(group)
+    await fetchTmOrders(group.id)
+
+    // Subscribe to real-time updates for this group
+    const channel = supabase
+      .channel(`tm_orders:${group.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'teman_makan_orders',
+        filter: `group_id=eq.${group.id}`
+      }, async () => {
+        // Fetch updated orders with profile info
+        await fetchTmOrders(group.id)
+        toast.success("Ada pesanan baru masuk! 🎉")
+      })
+      .subscribe()
+
+    // Store channel for cleanup (optional - you might want to keep it active)
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }
+
+  const handleFinishTmGroup = async () => {
+     if (!activeTmGroup) return
+     const { error } = await supabase.from('teman_makan_groups').update({ status: 'finished' }).eq('id', activeTmGroup.id)
+     if (error) {
+       toast.error("Gagal menutup room")
+       return
+     }
+     toast.success("Room ditutup & selesai!")
+     setActiveTmGroup({ ...activeTmGroup, status: 'finished' })
+     fetchTmGroups()
+  }
+
+  // Split Bill OCR Logic
+  const handleOcrProcess = async (file: File) => {
+    setOcrLoading(true)
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      const imageUrl = e.target?.result as string
+      setOcrImage(imageUrl)
+      
+      try {
+        const { data: { text } } = await Tesseract.recognize(imageUrl, 'ind', {
+          logger: m => console.log(m)
+        })
+        
+        // Simple Parser Logic
+        const lines = text.split('\n')
+        const items: {name: string, price: number, users: string[], itemType: 'food' | 'shared'}[] = []
+        
+        lines.forEach(line => {
+          const lowerLine = line.toLowerCase()
+          
+          // STRICT BLACKLIST: ONLY ignore absolute summary totals
+          // Keep line items, taxes, and discounts
+          const blacklist = [
+            'total', 'otal', 'subtotal', 'ubtotal', 'bayar', 'jumlah', 'kembali', 
+            'cash', 'tunai', 'change', 'rincian', 'pesanan', 'tagihan'
+          ]
+          
+          if (blacklist.some(kw => lowerLine.includes(kw))) return
+
+          // Enhanced price pattern: catch numbers, including leading '-' or '( )' for negatives
+          // Using a more flexible regex for Indonesian number formatting
+          const priceMatch = line.match(/\(?(-?\d+[,.]?\d*)\)?/g)
+          if (priceMatch && priceMatch.length > 0) {
+             const rawMatch = priceMatch[priceMatch.length - 1]
+             const isNegative = rawMatch.startsWith('-') || (rawMatch.startsWith('(') && rawMatch.endsWith(')'))
+             const cleanedPrice = rawMatch.replace(/[^0-9]/g, '')
+             const price = parseInt(cleanedPrice) * (isNegative ? -1 : 1)
+             
+             // Detect Quantity (e.g., "2 x ", "1x ")
+             const qtyMatch = line.match(/^(\d+)\s*[xX]/) || line.match(/\s(\d+)\s*[xX]/)
+             const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1
+             
+             // Extract name: remove the price and common artifacts (Rp, quantities)
+             let name = line.replace(/\(?(-?\d+[,.]?\d*)\)?/g, '')
+                 .replace(/rp/gi, '')
+                 .replace(/\s?\d+\s?[xX]\s?/g, ' ') // Remove 1x, 2 x, etc.
+                 .replace(/[.:\-/_()]/g, ' ') // Clean remaining symbols
+                 .trim()
+             
+             // Logic: items >= 100 IDR or negative discounts
+             if (Math.abs(price) >= 100 && name.length > 2 && isNaN(Number(name))) {
+                // AUTO-NEGATIVE: If name contains discount keywords, force negative
+                let finalPrice = price
+                const discountKeywords = ['diskon', 'voucher', 'promo', 'potongan', 'discount']
+                const sharedKeywords = ['diskon', 'voucher', 'promo', 'potongan', 'discount', 'biaya', 'ongkir', 'pengiriman', 'layanan', 'pajak', 'ppn', 'tax', 'fee', 'delivery', 'service']
+                if (discountKeywords.some(kw => name.toLowerCase().includes(kw))) {
+                   finalPrice = -Math.abs(price)
+                }
+
+                // Classify: shared cost or food?
+                const isShared = sharedKeywords.some(kw => name.toLowerCase().includes(kw))
+
+                // If quantity > 1, split into multiple items
+                const unitPrice = Math.floor(finalPrice / qty)
+                for (let i = 0; i < qty; i++) {
+                   items.push({ 
+                     name: qty > 1 ? `${name.substring(0, 25)} (#${i+1})` : name.substring(0, 30), 
+                     price: unitPrice, 
+                     users: [],
+                     itemType: isShared ? 'shared' : 'food'
+                   })
+                }
+             }
+          }
+        })
+        
+        setSplitItems(items)
+      } catch (err) {
+        toast.error("Gagal membaca gambar")
+      } finally {
+        setOcrLoading(false)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleSaveSplitBill = async () => {
+     if (splitItems.length === 0) return
+
+     // Check all food items are assigned
+     const foodIndices = splitItems.map((item, idx) => item.itemType === 'food' ? idx : -1).filter(i => i >= 0)
+     const missingAssignment = foodIndices.some(idx => !itemAssignments[idx])
+     if (missingAssignment) return toast.error('Semua item makanan harus dipilih orangnya!')
+
+     const { data: group, error: gError } = await supabase.from('split_bills').insert([{
+        creator_id: session.user.id,
+        title: `Split Bill ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}`,
+        bank_info: splitBillPaymentInfo.trim() || null,
+        status: 'open'
+     }]).select().single()
+
+     if (gError) { console.error('Split bill error:', gError); return toast.error('Gagal simpan grup: ' + gError.message) }
+
+     const itemsToInsert = splitItems.map((item, idx) => ({
+        split_bill_id: group.id,
+        item_name: item.name,
+        price: item.price,
+        item_type: item.itemType,
+        user_id: item.itemType === 'food' ? itemAssignments[idx] : null
+     }))
+
+     const { error: iError } = await supabase.from('split_bill_items').insert(itemsToInsert)
+     if (iError) toast.error('Gagal simpan item: ' + iError.message)
+     else {
+        toast.success('Split Bill disimpan! 🎉')
+        setIsOcrDrawerOpen(false)
+        setSplitItems([])
+        setItemAssignments({})
+        setAssignmentStep('edit')
+        setSplitBillPaymentInfo('')
+        fetchSplitBills()
+     }
+  }
+
+  const removeSplitItem = (idx: number) => {
+    setSplitItems(current => current.filter((_, i) => i !== idx))
+    // Clean up assignment for removed item
+    setItemAssignments(prev => {
+      const next = { ...prev }
+      delete next[idx]
+      return next
+    })
+  }
+
+  const addManualSplitItem = () => {
+    setSplitItems(current => [...current, { name: 'Item Baru', price: 0, users: [], itemType: 'food' }])
+  }
+
+  const toggleItemSign = (idx: number) => {
+    setSplitItems(current => {
+      const newItems = [...current]
+      newItems[idx].price = -newItems[idx].price
+      return newItems
+    })
+  }
+
   const totalPrice = cart.reduce((acc, item) => acc + item.price, 0)
 
   return (
@@ -432,12 +777,37 @@ export default function UserDashboard({ session }: { session: Session }) {
         </div>
       </div>
 
+      {activeTab === 'home' && (
+        <div className="bg-white px-5 pb-4 border-b border-slate-100 flex gap-4 sticky top-[80px] z-10">
+          <button 
+            onClick={() => setActiveView('personal')}
+            className={`flex-1 py-3 text-xs font-black uppercase tracking-tighter transition-all border-b-2 ${activeView === 'personal' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 opacity-60'}`}
+          >
+            Personal 🍱
+          </button>
+          <button 
+            onClick={() => setActiveView('teman_makan')}
+            className={`flex-1 py-3 text-xs font-black uppercase tracking-tighter transition-all border-b-2 ${activeView === 'teman_makan' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 opacity-60'}`}
+          >
+            Teman Makan 🤝
+          </button>
+          <button 
+            onClick={() => setActiveView('split_bill')}
+            className={`flex-1 py-3 text-xs font-black uppercase tracking-tighter transition-all border-b-2 ${activeView === 'split_bill' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 opacity-60'}`}
+          >
+            Split Bill 🧾
+          </button>
+        </div>
+      )}
+
       <div className="p-5 space-y-6 flex-1">
         {activeTab === 'home' ? (
           <>
-            {/* Header Welcome */}
+            {activeView === 'personal' && (
+              <>
+                {/* Header Welcome */}
             <div className="mb-2">
-              <h1 className="text-2xl font-black text-slate-800 tracking-tight">Halo, {profileName || 'Teman'}! 👋</h1>
+              <h1 className="text-2xl font-black text-slate-800 tracking-tight">Halo, {profileName || 'Agus'}! 👋</h1>
               <p className="text-slate-500 font-medium">Lagi pengen makan apa hari ini?</p>
             </div>
 
@@ -636,6 +1006,318 @@ export default function UserDashboard({ session }: { session: Session }) {
                 }
               </div>
             </div>
+            </>
+            )}
+
+            {activeView === 'teman_makan' && (
+              <div className="space-y-6">
+                {!activeTmGroup ? (
+                  <>
+                    <div className="bg-linear-to-r from-amber-500 to-orange-500 rounded-[32px] p-6 text-white shadow-xl shadow-amber-500/20">
+                      <h3 className="text-xl font-black mb-1">Makan Rame-Rame! 🤝</h3>
+                      <p className="text-white/80 text-xs font-medium mb-4 italic">Malas pesan sendiri? Gabung temen yang lagi pesan ojol aja!</p>
+                      <Button
+                        onClick={() => setIsTmCreateOpen(true)}
+                        className="w-full h-12 rounded-2xl bg-white text-amber-600 font-black text-sm shadow-lg hover:bg-amber-50 transition-all border-0"
+                      >
+                        + BUAT ROOM BARU
+                      </Button>
+                    </div>
+
+                    <div className="space-y-4 pb-20">
+                      <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Room Tersedia</h4>
+                      {tmGroups.length === 0 ? (
+                        <div className="text-center py-16 bg-white rounded-[40px] border-2 border-dashed border-slate-200">
+                          <p className="text-slate-400 font-bold italic text-sm">Belum ada room terbuka...</p>
+                        </div>
+                      ) : (
+                        tmGroups.map(group => (
+                          <div
+                            key={group.id}
+                            onClick={() => handleSelectTmGroup(group)}
+                            className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all cursor-pointer hover:border-amber-300"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="bg-amber-100 text-amber-600 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">OWNER: {group.profiles?.name?.split(' ')[0] || 'Agus'}</span>
+                                <span className="text-[10px] text-slate-400 font-medium">{getRelativeTime(group.created_at)}</span>
+                              </div>
+                              <h4 className="font-black text-slate-800 text-base truncate">{group.title}</h4>
+                              {group.bank_info && (
+                                <p className="text-[10px] text-slate-400 font-medium mt-1 truncate">{group.bank_info}</p>
+                              )}
+                            </div>
+                            <div className="bg-slate-50 p-3 rounded-2xl flex flex-col items-center">
+                              <span className="text-[10px] font-black text-slate-400 leading-none">JOIN</span>
+                              <ChevronRight className="w-5 h-5 text-amber-500 mt-1" />
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-6 pb-32">
+                    <button 
+                      onClick={() => setActiveTmGroup(null)}
+                      className="flex items-center gap-2 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-amber-600 transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" /> Kembali ke List
+                    </button>
+
+                    <div className="bg-white p-6 rounded-[40px] border border-slate-100 shadow-sm relative overflow-hidden">
+                       <div className="absolute top-0 right-0 p-6 opacity-10">
+                          <ShoppingBag className="w-20 h-20" />
+                       </div>
+                       <div className="relative z-10">
+                         <h3 className="text-2xl font-black text-slate-800 tracking-tight leading-tight mb-2">{activeTmGroup.title}</h3>
+                         <p className="text-slate-400 font-bold text-xs uppercase tracking-widest flex items-center gap-2 mb-3">
+                            Hosted by {activeTmGroup.profiles?.name} 👑
+                         </p>
+
+                         {/* Payment Info */}
+                         {activeTmGroup.bank_info && (
+                           <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 mb-4">
+                              <div className="flex items-start gap-2">
+                                 <div className="bg-amber-100 p-1.5 rounded-lg">
+                                    <CreditCard className="w-4 h-4 text-amber-600" />
+                                 </div>
+                                 <div className="flex-1">
+                                    <p className="text-[9px] font-black text-amber-600 uppercase tracking-wider mb-1">Info Pembayaran</p>
+                                    <p className="text-xs font-bold text-slate-700 leading-tight">{activeTmGroup.bank_info}</p>
+                                 </div>
+                              </div>
+                           </div>
+                         )}
+
+                         <div className="flex gap-2">
+                            <div className="bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100 flex items-center gap-2">
+                               <span className="text-xs font-black text-amber-700">{tmOrders.length} Orang Gabung</span>
+                            </div>
+                            {activeTmGroup.deadline && (
+                              <div className="bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 flex items-center gap-2">
+                                <Clock className="w-3 h-3 text-slate-500" />
+                                <span className="text-[10px] font-black text-slate-600">{new Date(activeTmGroup.deadline).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit'})}</span>
+                              </div>
+                            )}
+                            {activeTmGroup.creator_id === session.user.id && (
+                               activeTmGroup.status === 'finished' ? (
+                                 <div className="bg-slate-200 text-slate-500 px-3 py-1.5 rounded-xl text-xs font-black cursor-not-allowed">
+                                    ROOM DITUTUP 🔒
+                                 </div>
+                               ) : (
+                                 <button
+                                   onClick={handleFinishTmGroup}
+                                   className="bg-slate-800 text-white px-3 py-1.5 rounded-xl text-xs font-black active:scale-95 transition-all shadow-lg"
+                                 >
+                                    TUTUP ROOM ✅
+                                 </button>
+                               )
+                            )}
+                         </div>
+                       </div>
+                    </div>
+
+                    <div className="space-y-4">
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Pesanan Terkumpul</h4>
+                       {tmOrders.length === 0 ? (
+                         <div className="bg-slate-50/50 p-6 rounded-[32px] border-2 border-dashed border-slate-200 text-center">
+                            <p className="text-slate-400 font-bold text-xs italic">Belum ada yang pesan nih...</p>
+                         </div>
+                       ) : (
+                         <div className="bg-white rounded-[32px] border border-slate-100 overflow-hidden">
+                            {tmOrders.map((o, idx) => (
+                               <div key={idx} className={`p-4 flex items-center justify-between ${idx !== tmOrders.length - 1 ? 'border-b border-slate-50' : ''}`}>
+                                  <div className="flex items-center gap-3">
+                                     <div className="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center text-sm">🍱</div>
+                                     <div>
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{o.profiles?.name}</p>
+                                        <p className="font-bold text-slate-800 text-sm leading-tight">{o.menu_name}</p>
+                                     </div>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                     <p className="font-black text-slate-900 text-sm">{formatRupiah(o.price)}</p>
+                                     {(activeTmGroup.status === 'open' && (o.user_id === session.user.id || activeTmGroup?.creator_id === session.user.id)) && (
+                                       <button 
+                                         onClick={() => handleDeleteTmOrder(o.id)}
+                                         className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-full transition-colors active:scale-95"
+                                         title="Hapus Pesanan"
+                                       >
+                                         <Trash2 size={14} strokeWidth={3} />
+                                       </button>
+                                     )}
+                                  </div>
+                               </div>
+                            ))}
+                            <div className="bg-slate-50 p-4 flex justify-between items-center">
+                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Patungan</p>
+                               <p className="font-black text-slate-900 text-base">{formatRupiah(tmOrders.reduce((acc, o) => acc + o.price, 0))}</p>
+                            </div>
+                         </div>
+                       )}
+                    </div>
+
+                    {/* Join Actions */}
+                    {activeTmGroup.status === 'open' ? (
+                      <div className="pt-4 space-y-3 border-t border-slate-100">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-1">Pesanan Custom Kamu:</h4>
+                        
+                        <div className="space-y-3">
+                          <Input 
+                            placeholder="Makan apa? (misal: Sate Telor)"
+                            value={joinTmItemName}
+                            onChange={(e) => setJoinTmItemName(e.target.value)}
+                          />
+                          <Input 
+                            type="number"
+                            placeholder="Harganya berapa?"
+                            value={joinTmItemPrice}
+                            onChange={(e) => setJoinTmItemPrice(e.target.value)}
+                          />
+                          <Button 
+                            className="w-full bg-slate-900 text-white rounded-xl h-12"
+                            disabled={!joinTmItemName.trim() || !joinTmItemPrice.trim()}
+                            onClick={() => {
+                              handleJoinTmOrder(joinTmItemName.trim(), parseInt(joinTmItemPrice))
+                              setJoinTmItemName('')
+                              setJoinTmItemPrice('')
+                            }}
+                          >
+                            GABUNG PESANAN
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="pt-4 space-y-3 border-t border-slate-100 text-center">
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                           <p className="text-sm font-black text-slate-400">Room Sudah Ditutup 🙏</p>
+                           <p className="text-[10px] font-bold text-slate-400 mt-1">Kamu sudah tidak bisa pesan atau edit ya.</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeView === 'split_bill' && (
+              <div className="space-y-6">
+                <div className="bg-linear-to-r from-pink-500 to-rose-500 rounded-[32px] p-6 text-white shadow-xl shadow-pink-500/20">
+                  <h3 className="text-xl font-black mb-1">Split Bill 🤖</h3>
+                  <p className="text-white/80 text-xs font-medium mb-4 italic">Foto struk makan, biar AI yang hitung patungannya!</p>
+                  
+                  <div className="flex gap-2">
+                    <input 
+                      type="file" 
+                      id="ocr-upload" 
+                      className="hidden" 
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          handleOcrProcess(file)
+                          setIsOcrDrawerOpen(true)
+                        }
+                      }}
+                    />
+                    <label 
+                      htmlFor="ocr-upload"
+                      className="flex-1 h-12 rounded-2xl bg-white text-pink-600 font-black text-sm shadow-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all"
+                    >
+                      <Camera className="w-4 h-4" /> SCAN STRUK
+                    </label>
+                  </div>
+                </div>
+
+                <div className="space-y-4 pb-20">
+                   {/* Active Split Bills */}
+                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Patungan Yang Aktif:</h4>
+                   {splitBills.filter(b => b.status === 'open').length === 0 ? (
+                    <div className="text-center py-8 bg-white rounded-[40px] border-2 border-dashed border-slate-200">
+                      <p className="text-slate-400 font-bold italic text-sm">Belum ada patungan aktif.</p>
+                    </div>
+                   ) : (
+                    <div className="grid grid-cols-1 gap-4">
+                      {splitBills.filter(b => b.status === 'open').map(bill => (
+                        <div 
+                          key={bill.id}
+                          className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-xs text-left group hover:border-pink-200 transition-all"
+                        >
+                          <div className="flex justify-between items-start mb-3">
+                            <div>
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-1">Dibuat oleh {bill.profiles?.name?.split(' ')[0] || 'Agus'}</p>
+                              <h5 className="font-black text-slate-800 text-base leading-tight">{bill.title}</h5>
+                            </div>
+                            <div className="bg-pink-50 text-pink-600 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">
+                              ACTIVE ⚡️
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-tight">
+                              <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {getRelativeTime(bill.created_at)}</span>
+                              <span>•</span>
+                              <button 
+                                onClick={() => {
+                                  setSelectedSplitBill(bill)
+                                  fetchRecapItems(bill.id)
+                                  setIsRecapDrawerOpen(true)
+                                }}
+                                className="text-pink-500 active:scale-95"
+                              >
+                                LIHAT REKAP →
+                              </button>
+                            </div>
+                            {bill.creator_id === session.user.id && (
+                              <button 
+                                onClick={() => handleFinishSplitBill(bill.id)}
+                                className="bg-slate-800 text-white px-3 py-1 rounded-xl text-[10px] font-black active:scale-95 transition-all"
+                              >
+                                TUTUP ✅
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                   )}
+
+                   {/* Finished Split Bills */}
+                   {splitBills.filter(b => b.status === 'finished').length > 0 && (
+                     <>
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1 mt-6">Riwayat Patungan:</h4>
+                       <div className="grid grid-cols-1 gap-4">
+                         {splitBills.filter(b => b.status === 'finished').map(bill => (
+                           <button 
+                             key={bill.id}
+                             onClick={() => {
+                               setSelectedSplitBill(bill)
+                               fetchRecapItems(bill.id)
+                               setIsRecapDrawerOpen(true)
+                             }}
+                             className="bg-white/60 p-5 rounded-[32px] border border-slate-100 shadow-xs text-left group active:scale-[0.98] transition-all opacity-70 hover:opacity-100"
+                           >
+                             <div className="flex justify-between items-start mb-3">
+                               <div>
+                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-1">Dibuat oleh {bill.profiles?.name?.split(' ')[0] || 'Agus'}</p>
+                                 <h5 className="font-black text-slate-800 text-base leading-tight">{bill.title}</h5>
+                               </div>
+                               <div className="bg-slate-100 text-slate-500 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">
+                                 SELESAI 🔒
+                               </div>
+                             </div>
+                             <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-tight">
+                               <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {getRelativeTime(bill.created_at)}</span>
+                               <span>•</span>
+                               <span className="text-slate-500">LIHAT REKAP →</span>
+                             </div>
+                           </button>
+                         ))}
+                       </div>
+                     </>
+                   )}
+                </div>
+              </div>
+            )}
           </>
         ) : (
           /* Riwayat View */
@@ -726,6 +1408,67 @@ export default function UserDashboard({ session }: { session: Session }) {
         </button>
       </div>
 
+      {/* Teman Makan Create Room Drawer */}
+      <Drawer open={isTmCreateOpen} onOpenChange={setIsTmCreateOpen}>
+        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-10 border-0 shadow-2xl">
+          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
+          <DrawerHeader className="px-0">
+            <DrawerTitle className="text-2xl font-black text-slate-800">Buat Room Baru 🤝</DrawerTitle>
+            <DrawerDescription className="text-slate-500 font-medium">Ajak temen-temen makan rame-rame!</DrawerDescription>
+          </DrawerHeader>
+
+          <div className="space-y-6 py-6">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Judul Room*</Label>
+              <Input
+                placeholder="Mau makan apa bareng temen?"
+                value={newTmTitle}
+                onChange={(e) => setNewTmTitle(e.target.value)}
+                className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus:bg-white transition-all text-base font-bold"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Info Pembayaran (Opsional)</Label>
+              <textarea
+                placeholder="Nomor rekening & nama bank buat transfer (opsional)"
+                value={newTmBank}
+                onChange={(e) => setNewTmBank(e.target.value)}
+                className="w-full min-h-[80px] p-4 bg-slate-50 border border-slate-100 rounded-[28px] text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-amber-500/20 transition-all font-medium placeholder:text-slate-300"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Deadline Order (Opsional)</Label>
+              <Input
+                type="time"
+                value={newTmDeadline}
+                onChange={(e) => setNewTmDeadline(e.target.value)}
+                className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus:bg-white transition-all text-base font-bold"
+              />
+            </div>
+          </div>
+
+          <DrawerFooter className="px-0 pt-2">
+            <Button
+              onClick={handleCreateTmGroup}
+              disabled={tmCreating || !newTmTitle.trim()}
+              className="w-full h-16 rounded-3xl bg-slate-900 text-white font-black text-lg shadow-2xl active:scale-95 transition-all disabled:opacity-50"
+            >
+              {tmCreating ? (
+                <div className="flex items-center gap-2">
+                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                   Membuat Room...
+                </div>
+              ) : (
+                "BUAT ROOM SEKARANG 🚀"
+              )}
+            </Button>
+            <Button variant="ghost" onClick={() => setIsTmCreateOpen(false)} className="w-full h-12 text-slate-400 font-bold">Batal</Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
       {/* Manual Entry Drawer */}
       <Drawer open={isManualDrawerOpen} onOpenChange={setIsManualDrawerOpen}>
         <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-10 border-0 shadow-2xl">
@@ -739,7 +1482,7 @@ export default function UserDashboard({ session }: { session: Session }) {
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Nama Makanan</Label>
               <Input 
-                placeholder="Contoh: Nasi Gila Kebon Sirih" 
+                placeholder="Nama makanan yang ingin dipesan" 
                 value={manualFoodName}
                 onChange={(e) => setManualFoodName(e.target.value)}
                 className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus:bg-white transition-all text-base font-bold"
@@ -749,7 +1492,7 @@ export default function UserDashboard({ session }: { session: Session }) {
               <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Estimasi Harga (Rp)</Label>
               <Input 
                 type="number"
-                placeholder="Contoh: 15000" 
+                placeholder="Estimasi harga makanan" 
                 value={manualFoodPrice}
                 onChange={(e) => setManualFoodPrice(e.target.value)}
                 className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus:bg-white transition-all text-base font-bold"
@@ -835,31 +1578,43 @@ export default function UserDashboard({ session }: { session: Session }) {
                 <div className="flex items-start gap-4">
                    <div className="bg-white p-2 rounded-2xl shadow-sm text-2xl shrink-0">📸</div>
                    <div className="space-y-1">
-                      <p className="font-black text-slate-800 text-xs">Informasi Pembayaran</p>
-                      <p className="text-[10px] text-amber-700 font-medium leading-relaxed">Silakan transfer ke salah satu rekening OB di bawah ini:</p>
+                      <p className="font-black text-slate-800 text-xs">Informasi Pembayaran (Wajib Pilih)</p>
+                      <p className="text-[10px] text-amber-700 font-medium leading-relaxed">Silakan pilih target transfer & upload bukti:</p>
                    </div>
                 </div>
 
-                <div className="space-y-2">
-                   <div className="bg-white/60 p-3 rounded-2xl border border-amber-200/50 flex justify-between items-center">
-                      <div>
-                         <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest">BCA - MISBAKHUL UMAM</p>
-                         <p className="font-black text-slate-800 text-sm">2381149902</p>
-                      </div>
-                      <button onClick={() => copyToClipboard('2381149902', 'Nomor Rekening')} className="p-2 bg-white rounded-xl shadow-sm text-amber-600 active:scale-90 transition-all border border-amber-100">
-                         <Copy className="w-4 h-4" />
-                      </button>
-                   </div>
-                   <div className="bg-white/60 p-3 rounded-2xl border border-amber-200/50 flex justify-between items-center">
-                      <div>
-                         <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest">BCA - BERNADUS KOPONG KOREBIMA</p>
-                         <p className="font-black text-slate-800 text-sm">0280248151</p>
-                      </div>
-                      <button onClick={() => copyToClipboard('0280248151', 'Nomor Rekening')} className="p-2 bg-white rounded-xl shadow-sm text-amber-600 active:scale-90 transition-all border border-amber-100">
-                         <Copy className="w-4 h-4" />
-                      </button>
-                   </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => setTransferTo('Bahul')}
+                    className={`px-4 py-3 rounded-xl border-2 font-black text-xs transition-all ${transferTo === 'Bahul' ? 'bg-amber-500 border-amber-600 text-white shadow-md' : 'bg-white border-slate-100 text-slate-500'}`}
+                  >
+                    BAHUL (BCA)
+                  </button>
+                  <button 
+                    onClick={() => setTransferTo('Masber')}
+                    className={`px-4 py-3 rounded-xl border-2 font-black text-xs transition-all ${transferTo === 'Masber' ? 'bg-amber-500 border-amber-600 text-white shadow-md' : 'bg-white border-slate-100 text-slate-500'}`}
+                  >
+                    MASBER (BCA)
+                  </button>
                 </div>
+
+                {transferTo && (
+                  <div className="space-y-2">
+                    <div className="bg-white/60 p-3 rounded-2xl border border-amber-200/50 flex justify-between items-center transition-all animate-in zoom-in-95">
+                        <div>
+                          <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest">
+                            {transferTo === 'Bahul' ? 'BCA - MISBAKHUL UMAM' : 'BCA - BERNADUS KOPONG'}
+                          </p>
+                          <p className="font-black text-slate-800 text-sm">
+                            {transferTo === 'Bahul' ? '2381149902' : '0280248151'}
+                          </p>
+                        </div>
+                        <button onClick={() => copyToClipboard(transferTo === 'Bahul' ? '2381149902' : '0280248151', 'Nomor Rekening')} className="p-2 bg-white rounded-xl shadow-sm text-amber-600 active:scale-90 transition-all border border-amber-100">
+                          <Copy className="w-4 h-4" />
+                        </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="h-px bg-amber-200/50 w-full" />
 
@@ -868,7 +1623,7 @@ export default function UserDashboard({ session }: { session: Session }) {
                       <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
                       <p className="text-[9px] font-black text-amber-800 uppercase">Input Bukti Foto</p>
                    </div>
-                   <Input 
+                   <input 
                       type="file" 
                       ref={fileInputRef}
                       onChange={(e) => setProofFile(e.target.files?.[0] || null)}
@@ -879,7 +1634,7 @@ export default function UserDashboard({ session }: { session: Session }) {
                       type="button"
                       variant="outline"
                       onClick={() => fileInputRef.current?.click()}
-                      className={`w-full h-14 border-dashed border-2 rounded-2xl font-bold transition-all ${proofFile ? 'border-green-500 bg-green-50 text-green-700' : 'border-amber-300 bg-white text-amber-700 hover:bg-amber-50'}`}
+                      className={`w-full h-14 border-dashed border-2 rounded-2xl font-black transition-all ${proofFile ? 'border-green-500 bg-green-50 text-green-700' : 'border-amber-300 bg-white text-amber-700 hover:bg-amber-50'}`}
                    >
                       {proofFile ? `✅ ${proofFile.name}` : 'Pilih Foto Bukti'}
                    </Button>
@@ -891,7 +1646,7 @@ export default function UserDashboard({ session }: { session: Session }) {
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Catatan Tambahan (Opsional)</Label>
               <textarea 
-                placeholder="Contoh: Ga pakai pedas, kecap dikit aja ya..." 
+                placeholder="Catatan tambahan untuk pesanan (opsional)" 
                 value={catatan}
                 onChange={(e) => setCatatan(e.target.value)}
                 className="w-full min-h-[100px] p-4 bg-slate-50 border border-slate-100 rounded-[28px] text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-amber-500/20 transition-all font-medium placeholder:text-slate-300"
@@ -949,7 +1704,7 @@ export default function UserDashboard({ session }: { session: Session }) {
                         {commOrder.profiles?.name?.[0] || '?'}
                       </div>
                       <span className="text-[10px] font-black text-slate-400 tracking-tighter uppercase truncate">
-                        {commOrder.profiles?.name.split(' ')[0]} • {getRelativeTime(commOrder.created_at)}
+                        {commOrder.profiles?.name?.split(' ')[0] || 'Agus'} • {getRelativeTime(commOrder.created_at)}
                       </span>
                     </div>
                     <h4 className="font-bold text-slate-800 text-sm">{commOrder.food_name}</h4>
@@ -960,7 +1715,7 @@ export default function UserDashboard({ session }: { session: Session }) {
                         const menuMatch = menus.find(m => m.food_name === commOrder.food_name)
                         if (menuMatch) {
                           toggleCart(menuMatch)
-                          toast.success(`Nyontek pesanan ${commOrder.profiles?.name.split(' ')[0]} dikit! 😂`)
+                          toast.success(`Nyontek pesanan ${commOrder.profiles?.name?.split(' ')[0] || 'Agus'} dikit! 😂`)
                         } else {
                           const manualItem: Menu = {
                             id: `duplicate-${Date.now()}`,
@@ -969,7 +1724,7 @@ export default function UserDashboard({ session }: { session: Session }) {
                             category: 'Lainnya'
                           }
                           setCart(prev => [...prev, manualItem])
-                          toast.success(`Nyontek pesanan ${commOrder.profiles?.name.split(' ')[0]} dikit! 😂`)
+                          toast.success(`Nyontek pesanan ${commOrder.profiles?.name?.split(' ')[0] || 'Agus'} dikit! 😂`)
                         }
                     }}
                     className="h-8 rounded-xl bg-amber-500 text-white font-black text-[10px] shadow-sm hover:bg-amber-600 transition-all hover:scale-105 active:scale-95"
@@ -1058,7 +1813,7 @@ export default function UserDashboard({ session }: { session: Session }) {
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400">Rp</span>
                   <Input 
                     type="number"
-                    placeholder="Contoh: 75000"
+                    placeholder="Nominal yang ingin ditarik"
                     value={customTardutAmount}
                     onChange={(e) => {
                       setCustomTardutAmount(e.target.value)
@@ -1117,7 +1872,427 @@ export default function UserDashboard({ session }: { session: Session }) {
               <Button variant="ghost" onClick={() => setIsTardutDrawerOpen(false)} className="w-full h-12 text-slate-400 font-bold hover:text-slate-600 uppercase tracking-widest text-[10px]">Batal</Button>
            </DrawerFooter>
          </DrawerContent>
-       </Drawer>
-    </div>
+        </Drawer>
+
+      {/* OCR PROCESSING DRAWER */}
+      <Drawer open={isOcrDrawerOpen} onOpenChange={setIsOcrDrawerOpen}>
+        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-12 border-0 shadow-2xl h-[85vh]">
+          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
+          
+          <DrawerHeader className="px-0">
+            <DrawerTitle className="text-2xl font-black text-slate-800 flex items-center gap-2">
+              {assignmentStep === 'edit' && "Edit Struk 🧾"}
+              {assignmentStep === 'assign' && "Siapa Makan Apa? 👥"}
+              {assignmentStep === 'payment' && "Info Pembayaran 💳"}
+              {assignmentStep === 'summary' && "Hasil Patungan 💰"}
+            </DrawerTitle>
+            <DrawerDescription className="text-xs text-slate-400 font-medium">
+              {assignmentStep === 'edit' && "Cek lagi nama dan harga item yang terbaca AI."}
+              {assignmentStep === 'assign' && "Pilih siapa yang pesan masing-masing menu."}
+              {assignmentStep === 'payment' && "Masukkan info transfer agar teman kamu tahu bayar ke mana."}
+              {assignmentStep === 'summary' && "Review hasil pembagian patungan sebelum simpan."}
+            </DrawerDescription>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-6 pt-4 scrollbar-hide">
+             {ocrLoading ? (
+               <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                  <div className="relative">
+                    <div className="w-16 h-16 border-4 border-pink-100 border-t-pink-500 rounded-full animate-spin" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                       <Zap className="w-6 h-6 text-pink-500 animate-pulse" />
+                    </div>
+                  </div>
+                  <p className="font-black text-slate-800 text-lg">AI lagi baca strukmu...</p>
+                  <p className="text-xs text-slate-400 font-bold uppercase animate-pulse">Mohon tunggu sebentar</p>
+               </div>
+             ) : (
+               <>
+                 {assignmentStep === 'edit' && (
+                   <div className="space-y-6">
+                     {ocrImage && (
+                       <div className="relative rounded-3xl overflow-hidden border-2 border-slate-100 h-48 bg-slate-50">
+                          <img src={ocrImage} alt="Receipt" className="w-full h-full object-contain" />
+                          <div className="absolute inset-0 bg-linear-to-t from-black/50 to-transparent flex items-bottom p-4">
+                             <p className="text-white text-[10px] font-black uppercase tracking-widest">Preview Struk</p>
+                          </div>
+                       </div>
+                     )}
+
+                     <div className="space-y-3">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Hasil Deteksi ({splitItems.length})</h4>
+                        {splitItems.length === 0 ? (
+                          <p className="text-center py-10 text-slate-400 italic">Maaf, AI gagal baca struknya. Coba foto lebih jelas ya!</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {splitItems.map((item, idx) => (
+                               <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex justify-between items-center group hover:border-pink-300 transition-all">
+                                  <div className="flex-1 mr-4">
+                                     <div className="flex items-center gap-2 mb-1">
+                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase ${item.itemType === 'shared' ? 'bg-amber-100 text-amber-600' : 'bg-pink-100 text-pink-600'}`}>
+                                           {item.itemType === 'shared' ? 'BIAYA BERSAMA' : 'MENU'}
+                                        </span>
+                                     </div>
+                                     <input 
+                                       value={item.name}
+                                       onChange={(e) => {
+                                          const newItems = [...splitItems]
+                                          newItems[idx].name = e.target.value
+                                          setSplitItems(newItems)
+                                       }}
+                                       className="font-bold text-slate-800 text-sm focus:outline-none bg-transparent w-full"
+                                     />
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                     <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-100">
+                                       <button 
+                                         onClick={() => toggleItemSign(idx)}
+                                         className={`w-6 h-6 flex items-center justify-center rounded-lg text-[10px] font-black transition-all ${item.price < 0 ? 'bg-emerald-500 text-white shadow-xs' : 'bg-slate-200 text-slate-600'}`}
+                                       >
+                                         {item.price < 0 ? '−' : '+'}
+                                       </button>
+                                       <input 
+                                         type="number"
+                                         value={Math.abs(item.price)}
+                                         onChange={(e) => {
+                                            const val = Math.abs(parseInt(e.target.value) || 0)
+                                            const newItems = [...splitItems]
+                                            newItems[idx].price = item.price < 0 ? -val : val
+                                            setSplitItems(newItems)
+                                         }}
+                                         className={`font-black text-sm w-16 text-right focus:outline-none bg-transparent ${item.price < 0 ? 'text-emerald-600' : 'text-slate-900'}`}
+                                       />
+                                     </div>
+                                     <button 
+                                       onClick={() => removeSplitItem(idx)}
+                                       className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                     >
+                                       <Trash2 className="w-4 h-4" />
+                                     </button>
+                                  </div>
+                               </div>
+                            ))}
+                          </div>
+                        )}
+                        
+                        <button 
+                          onClick={addManualSplitItem}
+                          className="w-full py-4 border-2 border-dashed border-slate-100 rounded-2xl flex items-center justify-center gap-2 text-slate-400 font-bold hover:bg-slate-50 hover:border-pink-200 hover:text-pink-500 transition-all text-sm mb-4"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Tambah Item Manual
+                        </button>
+                     </div>
+                     
+                     <div className="pt-6 space-y-3 border-t border-slate-100">
+                        <div className="flex justify-between items-center px-2">
+                           <p className="text-sm font-black text-slate-800 uppercase tracking-widest">Total Tagihan</p>
+                           <p className="text-xl font-black text-pink-600">
+                              {formatRupiah(splitItems.reduce((acc, i) => acc + i.price, 0))}
+                           </p>
+                        </div>
+                        <Button 
+                          onClick={() => setAssignmentStep('assign')}
+                          className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black shadow-xl shadow-slate-900/20 active:scale-95 transition-all text-sm uppercase tracking-widest"
+                        >
+                          Lanjut Pilih Orang →
+                        </Button>
+                     </div>
+                   </div>
+                 )}
+
+                 {assignmentStep === 'assign' && (
+                   <div className="space-y-6">
+                     <div className="bg-pink-50 p-4 rounded-3xl border border-pink-100">
+                        <p className="text-[10px] font-black text-pink-600 uppercase tracking-widest mb-1">Tips 💡</p>
+                        <p className="text-xs text-slate-700 font-medium italic">Biaya bersama (pajak, diskon, dll) tidak perlu dipilih orangnya, nanti otomatis dibagi rata ke semua orang yang ada di daftar.</p>
+                     </div>
+
+                     <div className="space-y-4">
+                        {splitItems.map((item, idx) => (
+                           item.itemType === 'food' && (
+                             <div key={idx} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm transition-all hover:border-pink-200">
+                                <div className="flex justify-between items-start mb-4">
+                                   <div className="flex-1 pr-2">
+                                      <h6 className="font-black text-slate-800 text-sm leading-tight wrap-break-word">{item.name}</h6>
+                                      <p className="text-xs font-bold text-slate-400 mt-0.5">{formatRupiah(item.price)}</p>
+                                   </div>
+                                   <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 shrink-0">
+                                      <Users className="w-4 h-4 text-slate-400" />
+                                   </div>
+                                </div>
+
+                                <div className="relative">
+                                   <select 
+                                     value={itemAssignments[idx] || ""}
+                                     onChange={(e) => setItemAssignments(prev => ({ ...prev, [idx]: e.target.value }))}
+                                     className="w-full h-12 rounded-2xl bg-slate-50 border-0 px-4 font-black text-xs text-slate-800 appearance-none focus:ring-2 focus:ring-pink-500/20 transition-all cursor-pointer"
+                                   >
+                                      <option value="" disabled>Pilih siapa yang makan...</option>
+                                      {allProfiles.map(p => (
+                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                      ))}
+                                   </select>
+                                   <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                                      <ChevronDown className="w-4 h-4 text-slate-400" />
+                                   </div>
+                                </div>
+                             </div>
+                           )
+                        ))}
+                     </div>
+
+                     <div className="pt-6 space-y-3 border-t border-slate-100">
+                        <div className="flex gap-3">
+                           <Button 
+                             variant="ghost"
+                             onClick={() => setAssignmentStep('edit')}
+                             className="flex-1 h-14 rounded-2xl bg-slate-50 text-slate-400 font-black hover:bg-slate-100"
+                           >
+                              ← KEMBALI
+                           </Button>
+                           <Button 
+                             onClick={() => {
+                                const foodIndices = splitItems.map((item, idx) => item.itemType === 'food' ? idx : -1).filter(i => i >= 0);
+                                const missingAssignment = foodIndices.some(idx => !itemAssignments[idx]);
+                                if (missingAssignment) return toast.error('Semua item makanan harus dipilih orangnya!');
+                                setAssignmentStep('payment');
+                             }}
+                             className="flex-2 h-14 rounded-2xl bg-slate-900 text-white font-black shadow-xl shadow-slate-900/20 active:scale-95 transition-all text-sm uppercase tracking-widest"
+                           >
+                             Lanjut →
+                           </Button>
+                        </div>
+                     </div>
+                   </div>
+                 )}
+
+                 {assignmentStep === 'payment' && (
+                   <div className="space-y-6">
+                      <div className="bg-amber-50 p-5 rounded-3xl border border-amber-100">
+                         <div className="flex items-center gap-3 mb-4">
+                            <div className="bg-amber-100 p-2 rounded-xl">
+                               <CreditCard className="w-5 h-5 text-amber-600" />
+                            </div>
+                            <div>
+                               <p className="font-black text-sm text-slate-800">Transfer ke mana?</p>
+                               <p className="text-[10px] text-slate-400 font-medium">Contoh: BCA 1234567890 a.n. Budi</p>
+                            </div>
+                         </div>
+                         <Input 
+                           placeholder="BCA 1234567890 a.n. Budi"
+                           value={splitBillPaymentInfo}
+                           onChange={(e) => setSplitBillPaymentInfo(e.target.value)}
+                           className="bg-white"
+                         />
+                      </div>
+
+                      <div className="flex gap-3">
+                         <Button 
+                           onClick={() => setAssignmentStep('assign')}
+                           variant="outline"
+                           className="flex-1 h-14 rounded-2xl font-black text-sm"
+                         >
+                           ← Kembali
+                         </Button>
+                         <Button 
+                           onClick={() => {
+                              if (!splitBillPaymentInfo.trim()) return toast.error('Info pembayaran harus diisi!');
+                              setAssignmentStep('summary');
+                           }}
+                           className="flex-2 h-14 rounded-2xl bg-slate-900 text-white font-black shadow-xl shadow-slate-900/20 active:scale-95 transition-all text-sm uppercase tracking-widest"
+                         >
+                           Lihat Recap →
+                         </Button>
+                      </div>
+                   </div>
+                 )}
+
+                 {assignmentStep === 'summary' && (
+                    <div className="space-y-6">
+                       <div className="space-y-4">
+                          {(() => {
+                             const assignedUserIds = [...new Set(Object.values(itemAssignments))];
+                             const sharedTotal = splitItems.filter(i => i.itemType === 'shared').reduce((acc, i) => acc + i.price, 0);
+                             const splitShared = assignedUserIds.length > 0 ? Math.floor(sharedTotal / assignedUserIds.length) : 0;
+
+                             return assignedUserIds.map(uid => {
+                                const profile = allProfiles.find(p => p.id === uid);
+                                const foodTotal = splitItems.reduce((acc, item, idx) => {
+                                   return (item.itemType === 'food' && itemAssignments[idx] === uid) ? acc + item.price : acc;
+                                }, 0);
+                                const total = foodTotal + splitShared;
+
+                                return (
+                                   <div key={uid} className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-xs flex items-center justify-between">
+                                      <div className="flex items-center gap-3">
+                                         <div className="w-10 h-10 bg-pink-100 rounded-2xl flex items-center justify-center text-pink-600 font-black uppercase">
+                                            {profile?.name?.[0] || "?"}
+                                         </div>
+                                         <div>
+                                            <h6 className="font-black text-slate-800 text-sm leading-tight">{profile?.name}</h6>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">
+                                               {formatRupiah(foodTotal)} + {formatRupiah(splitShared)} (beban)
+                                            </p>
+                                         </div>
+                                      </div>
+                                      <div className="text-right">
+                                         <p className="font-black text-pink-600 text-base">{formatRupiah(total)}</p>
+                                      </div>
+                                   </div>
+                                )
+                             })
+                          })()}
+                       </div>
+
+                       <div className="pt-6 space-y-3 border-t border-slate-100">
+                          <div className="flex gap-3">
+                             <Button 
+                               variant="ghost"
+                               onClick={() => setAssignmentStep('assign')}
+                               className="flex-1 h-14 rounded-2xl bg-slate-50 text-slate-400 font-black hover:bg-slate-100"
+                             >
+                                ← KEMBALI
+                             </Button>
+                             <Button 
+                               onClick={handleSaveSplitBill}
+                               className="flex-2 h-14 rounded-2xl bg-slate-900 text-white font-black shadow-xl shadow-pink-500/20 active:scale-95 transition-all text-sm uppercase tracking-widest"
+                             >
+                               SIMPAN BILL 🎉
+                             </Button>
+                          </div>
+                       </div>
+                    </div>
+                 )}
+               </>
+             )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+        {/* PARTIAL CLAIM DRAWER */}
+      {/* RECAP DRAWER (View Only Summary) */}
+      <Drawer open={isRecapDrawerOpen} onOpenChange={setIsRecapDrawerOpen}>
+        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-12 border-0 shadow-2xl h-[80vh]">
+          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
+          <DrawerHeader className="px-0 text-left">
+            <DrawerTitle className="text-2xl font-black text-slate-800 flex items-center gap-2">
+               Rekap Patungan 📝
+            </DrawerTitle>
+            <DrawerDescription className="text-slate-500 font-medium font-outfit">
+               Rincian pembagian tagihan {selectedSplitBill?.title || 'ini'}.
+            </DrawerDescription>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-6 pt-4 scrollbar-hide">
+             {/* Payment Info */}
+             {selectedSplitBill?.bank_info && (
+               <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
+                  <div className="flex items-start gap-2">
+                     <div className="bg-amber-100 p-1.5 rounded-lg">
+                        <CreditCard className="w-4 h-4 text-amber-600" />
+                     </div>
+                     <div className="flex-1">
+                        <p className="text-[9px] font-black text-amber-600 uppercase tracking-wider mb-1">Transfer Ke</p>
+                        <p className="text-xs font-bold text-slate-700 leading-tight">{selectedSplitBill.bank_info}</p>
+                     </div>
+                  </div>
+               </div>
+             )}
+             {(() => {
+                const foodItems = recapItems.filter(i => i.item_type === 'food');
+                const sharedItems = recapItems.filter(i => i.item_type === 'shared');
+                const sharedTotal = sharedItems.reduce((acc, i) => acc + (parseFloat(i.price) || 0), 0);
+                
+                // Group food items by user
+                const userTotals: Record<string, {name: string, foodTotal: number, items: any[]}> = {};
+                foodItems.forEach(item => {
+                   const uid = item.user_id;
+                   const name = item.profiles?.name || 'Anonim';
+                   if (!userTotals[uid]) {
+                      userTotals[uid] = { name, foodTotal: 0, items: [] };
+                   }
+                   userTotals[uid].foodTotal += parseFloat(item.price) || 0;
+                   userTotals[uid].items.push(item);
+                });
+
+                const participantCount = Object.keys(userTotals).length;
+                const splitShared = participantCount > 0 ? Math.floor(sharedTotal / participantCount) : 0;
+
+                return (
+                   <>
+                      {/* Shared Costs Summary */}
+                      {sharedItems.length > 0 && (
+                        <div className="bg-amber-50 rounded-3xl p-5 border border-amber-100/50">
+                           <h6 className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-3">Biaya Bersama (Dibagi Rata)</h6>
+                           <div className="space-y-2">
+                              {sharedItems.map(item => (
+                                <div key={item.id} className="flex justify-between items-center">
+                                   <span className="text-xs font-bold text-slate-600">{item.item_name}</span>
+                                   <span className={`text-xs font-black ${parseFloat(item.price) < 0 ? 'text-emerald-500' : 'text-slate-800'}`}>
+                                      {formatRupiah(parseFloat(item.price))}
+                                   </span>
+                                </div>
+                              ))}
+                              <div className="pt-2 mt-2 border-t border-amber-200/50 flex justify-between items-center">
+                                 <span className="text-xs font-black text-amber-700 uppercase">Total Dibagi ke {participantCount} orang</span>
+                                 <span className="text-sm font-black text-amber-700">{formatRupiah(sharedTotal)}</span>
+                              </div>
+                           </div>
+                        </div>
+                      )}
+
+                      {/* Participant Totals */}
+                      <div className="space-y-4">
+                         <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Pembagian Per Orang:</h6>
+                         {Object.entries(userTotals).map(([uid, data]) => {
+                            const total = data.foodTotal + splitShared;
+                            return (
+                               <div key={uid} className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-xs">
+                                  <div className="flex items-center justify-between mb-4">
+                                     <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-pink-100 rounded-2xl flex items-center justify-center text-pink-600 font-black uppercase">
+                                           {data.name[0]}
+                                        </div>
+                                        <div>
+                                           <h6 className="font-black text-slate-800 text-sm leading-tight">{data.name}</h6>
+                                           <p className="text-[10px] font-bold text-pink-500 uppercase mt-0.5">Total: {formatRupiah(total)}</p>
+                                        </div>
+                                     </div>
+                                     <div className="text-right">
+                                        <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Porsi Patungan</p>
+                                        <p className="font-black text-slate-800 text-sm">{formatRupiah(total)}</p>
+                                     </div>
+                                  </div>
+
+                                  <div className="space-y-1.5 pl-2 border-l-2 border-slate-50 py-1">
+                                     {data.items.map(i => (
+                                       <div key={i.id} className="flex justify-between items-center text-[10px] font-medium text-slate-500">
+                                          <span>{i.item_name}</span>
+                                          <span>{formatRupiah(parseFloat(i.price))}</span>
+                                       </div>
+                                     ))}
+                                     <div className="flex justify-between items-center text-[10px] font-medium text-amber-600 italic">
+                                        <span>Beban Bersama (1/{participantCount})</span>
+                                        <span>{formatRupiah(splitShared)}</span>
+                                     </div>
+                                  </div>
+                               </div>
+                            );
+                         })}
+                      </div>
+                   </>
+                );
+             })()}
+          </div>
+
+          <DrawerFooter className="px-0 mt-6">
+            <Button onClick={() => setIsRecapDrawerOpen(false)} className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black text-base shadow-xl active:scale-95 transition-all uppercase tracking-widest">
+               Tutup Rekap
+            </Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+      </div>
   )
 }

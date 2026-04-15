@@ -21,7 +21,8 @@ export type OBOrder = {
   catatan: string | null;
   profiles?: { name: string };
   category: string;
-  updated_at?: string;
+  transfer_to?: string | null;
+  updated_at?: string | null;
 }
 
 export type TardutRequest = {
@@ -74,6 +75,7 @@ export default function OBDashboard({ session }: { session: Session }) {
   const [isBusy, setIsBusy] = useState(false)
   const [catFilter, setCatFilter] = useState('Semua')
   const [selectedObForDetail, setSelectedObForDetail] = useState<string | null>(null)
+  const [transferFilter, setTransferFilter] = useState<'Semua' | 'Bahul' | 'Masber'>('Semua')
   
   const lastUpdateRef = useRef<number>(0)
 
@@ -538,8 +540,19 @@ export default function OBDashboard({ session }: { session: Session }) {
 
             {/* Incoming Orders List */}
             <div>
-              <h3 className="font-bold text-slate-800 mb-3 text-lg flex items-center gap-2">
-                Pesanan Masuk ({orders.length})
+              <h3 className="font-bold text-slate-800 mb-3 text-lg flex items-center justify-between gap-2">
+                <span>Pesanan Masuk ({orders.length})</span>
+                <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                   {['Semua', 'Bahul', 'Masber'].map((tf) => (
+                      <button 
+                        key={tf}
+                        onClick={() => setTransferFilter(tf as any)}
+                        className={`px-3 py-1 text-[9px] font-black uppercase tracking-tighter rounded-md transition-all ${transferFilter === tf ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-400'}`}
+                      >
+                        {tf}
+                      </button>
+                   ))}
+                </div>
               </h3>
               {orders.length === 0 ? (
                 <div className="text-center py-12 flex flex-col items-center text-slate-400 bg-white rounded-[32px] border-2 border-slate-100 border-dashed">
@@ -549,7 +562,9 @@ export default function OBDashboard({ session }: { session: Session }) {
                 </div>
               ) : (
                 <div className="space-y-4 pb-10">
-                  {orders.map(order => {
+                  {orders
+                    .filter(o => transferFilter === 'Semua' || o.transfer_to === transferFilter)
+                    .map(order => {
                     const isMyOrder = order.assigned_to_ob === myObId
                     const isSomeoneElseOrder = order.assigned_to_ob && order.assigned_to_ob !== myObId
 
@@ -578,9 +593,16 @@ export default function OBDashboard({ session }: { session: Session }) {
                                   <CheckCircle className="w-3 h-3 mr-1" /> LUNAS
                                 </span>
                               ) : (
-                                <span className="text-[10px] inline-flex items-center px-2 py-1.5 bg-red-50 text-red-600 font-black rounded-lg border border-red-100/50">
-                                  BELUM BAYAR
-                                </span>
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className="text-[10px] inline-flex items-center px-2 py-1.5 bg-red-50 text-red-600 font-black rounded-lg border border-red-100/50">
+                                    BELUM BAYAR
+                                  </span>
+                                  {order.transfer_to && (
+                                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full border ${order.transfer_to === 'Bahul' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>
+                                      TF KE: {order.transfer_to}
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </div>
@@ -697,7 +719,9 @@ export default function OBDashboard({ session }: { session: Session }) {
                           <CheckCircle className="w-3 h-3" />
                           <span className="text-[9px] font-black uppercase tracking-widest">Selesai</span>
                         </div>
-                        <span className="text-[9px] font-bold text-slate-400">{new Date(order.updated_at || order.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-[9px] font-bold text-slate-400">
+                          {new Date(order.updated_at || order.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                       </div>
                     </CardContent>
                   </Card>
