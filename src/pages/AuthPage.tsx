@@ -100,7 +100,7 @@ export default function AuthPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required={!isLogin}
-                className="bg-slate-50 border-slate-200 h-12 rounded-xl focus-visible:ring-amber-500"
+                className="bg-slate-50 border-slate-200 h-12 rounded-xl focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white transition-all shadow-xs"
               />
             </div>
           )}
@@ -126,7 +126,7 @@ export default function AuthPage() {
                 placeholder="••••••••"
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="bg-slate-50 border-slate-200 h-12 rounded-xl focus-visible:ring-amber-500 pr-10"
+                className="bg-slate-50 border-slate-200 h-12 rounded-xl focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white transition-all shadow-xs pr-10"
               />
               <button
                 type="button"

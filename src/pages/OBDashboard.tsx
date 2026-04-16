@@ -2,1148 +2,569 @@ import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { CheckCircle, Image as ImageIcon, CalendarClock, ShoppingBag, MessageSquare, LogOut, Plus, Trash2, UtensilsCrossed, LayoutDashboard, Edit2, UserCheck, AlertTriangle, History, ChevronLeft, ChevronRight, Banknote } from 'lucide-react'
+import {
+	CheckCircle,
+	LogOut,
+	Trash2,
+	UtensilsCrossed,
+	Edit2,
+	Folder,
+	Plus,
+} from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../components/ui/drawer'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '../components/ui/drawer'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
-export type OBOrder = { 
-  id: string; 
-  food_name: string; 
-  price: number; 
-  created_at: string; 
-  order_status: string; 
-  payment_method: string; 
-  payment_status: string; 
-  assigned_to_ob: string | null; 
-  proof_url: string | null; 
-  catatan: string | null;
-  profiles?: { name: string };
-  category: string;
-  transfer_to?: string | null;
-  updated_at?: string | null;
-}
 
-export type TardutRequest = {
-  id: string;
-  user_id: string;
-  amount: number;
-  proof_url: string;
-  status: string;
-  created_at: string;
-  profiles?: { name: string };
-  assigned_to_ob?: string;
-}
 
-export type Menu = { 
-  id: string; 
-  food_name: string; 
-  price: number; 
-  category: string;
-}
-
-export type Category = {
-  id: string;
-  name: string;
-}
+import { Menu } from '../types'
+import { useTardut } from '../hooks/useTardut'
+import { useOrders } from '../hooks/useOrders'
+import { OBTardutList } from '../components/organisms/OBTardutList'
+import { OrderCard } from '../components/molecules/OrderCard'
+import { CategoryManagerDrawer } from '../components/organisms/CategoryManagerDrawer'
 
 export default function OBDashboard({ session }: { session: Session }) {
-  const [orders, setOrders] = useState<OBOrder[]>([])
-  const [menus, setMenus] = useState<Menu[]>([])
-  const [view, setView] = useState<'orders' | 'history' | 'menu' | 'tardut'>('orders')
-  const [tardutRequests, setTardutRequests] = useState<TardutRequest[]>([])
-  const [selectedTardut, setSelectedTardut] = useState<TardutRequest | null>(null)
-  const [isTardutModalOpen, setIsTardutModalOpen] = useState(false)
-  const [historyOrders, setHistoryOrders] = useState<OBOrder[]>([])
-  const [historyPage, setHistoryPage] = useState(1)
-  const [totalHistoryCount, setTotalHistoryCount] = useState(0)
-  const [myObId, setMyObId] = useState<string | null>(null)
-  
-  // Menu Drawers
-  const [isMenuDrawerOpen, setIsMenuDrawerOpen] = useState(false)
-  const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
-  const [editingMenu, setEditingMenu] = useState<Menu | null>(null)
-  
-  // Form States
-  const [newFoodName, setNewFoodName] = useState('')
-  const [newFoodPrice, setNewFoodPrice] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState('Lainnya')
-  const [dbCategories, setDbCategories] = useState<Category[]>([])
-  const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false)
-  const [newCategoryName, setNewCategoryName] = useState('')
-  const [isBusy, setIsBusy] = useState(false)
-  const [catFilter, setCatFilter] = useState('Semua')
-  const [selectedObForDetail, setSelectedObForDetail] = useState<string | null>(null)
-  const [transferFilter, setTransferFilter] = useState<'Semua' | 'Bahul' | 'Masber'>('Semua')
-  
-  const lastUpdateRef = useRef<number>(0)
-
-  useEffect(() => {
-    fetchMyProfile()
-    fetchActiveOrders()
-    fetchMenus()
-    fetchCategories()
-
-    // Real-time subscription
-    const channel = supabase
-      .channel('public:orders')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'orders' 
-      }, async (payload) => {
-        // If it's a new order or an update, we might need the profile join
-        // Real-time doesn't support joins, so we refetch to get the profile name
-        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-          const { data: freshOrder, error } = await supabase
-            .from('orders')
-            .select('*, profiles(name)')
-            .eq('id', payload.new.id)
-            .single()
-          
-          if (freshOrder && !error) {
-            setOrders(current => {
-              const exists = current.find(o => o.id === freshOrder.id)
-              if (exists) {
-                // If the order was just completed, we remove it (if it's not waiting anymore)
-                if (freshOrder.order_status === 'done') {
-                  // Refetch history when an order is done
-                  fetchHistoryOrders()
-                  return current.filter(o => o.id !== freshOrder.id)
-                }
-                return current.map(o => o.id === freshOrder.id ? freshOrder : o)
-              } else {
-                // Only add if it's within the active window (waiting and recent)
-                if (freshOrder.order_status === 'waiting') {
-                  const newOrders = [...current, freshOrder].sort((a, b) => 
-                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                  )
-                  return newOrders
-                }
-                return current
-              }
-            })
-          }
-        } else if (payload.eventType === 'DELETE') {
-          setOrders(current => current.filter(o => o.id !== payload.old.id))
-        }
-      })
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'tardut_requests'
-      }, () => {
-        fetchTardutRequests()
-      })
-      .subscribe()
-    
-    fetchTardutRequests()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (myObId) {
-      fetchHistoryOrders()
-    }
-  }, [myObId, historyPage])
-
-  useEffect(() => {
-    if (view !== 'orders' || !session.user.id) return
-
-    const watchId = navigator.geolocation.watchPosition(
-      async (position) => {
-        const now = Date.now()
-        // Throttle to 10 seconds
-        if (now - lastUpdateRef.current < 10000) return
-        
-        lastUpdateRef.current = now
-        await supabase
-          .from('profiles')
-          .update({
-            last_lat: position.coords.latitude,
-            last_lng: position.coords.longitude,
-            last_updated_at: new Date().toISOString()
-          })
-          .eq('id', session.user.id)
-      },
-      (error) => {
-        if (error.code === 1) { // PERMISSION_DENIED
-           console.warn('Geolocation permission denied')
-        }
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    )
-
-    return () => navigator.geolocation.clearWatch(watchId)
-  }, [view, session.user.id])
-
-  const fetchMyProfile = async () => {
-    const { data } = await supabase.from('profiles').select('name').eq('id', session.user.id).single()
-    if (data) {
-      const name = data.name.toLowerCase()
-      if (name.includes('bahul')) setMyObId('OB 1')
-      else if (name.includes('masber')) setMyObId('OB 2')
-      else setMyObId(data.name)
-    }
-  }
-
-  const fetchMenus = async () => {
-    const { data } = await supabase.from('menus').select('*').order('food_name')
-    if (data) setMenus(data)
-  }
-
-  const fetchCategories = async () => {
-    const { data } = await supabase.from('categories').select('*').order('name')
-    if (data) {
-      setDbCategories(data)
-      if (data.length > 0 && !data.find(c => c.name === selectedCategory)) {
-         // Optionally reset if current selected is gone, but we usually default to 'Lainnya'
-      }
-    }
-  }
-
-  const handleAddCategory = async () => {
-    if (!newCategoryName) return
-    setIsBusy(true)
-    const { error } = await supabase.from('categories').insert([{ name: newCategoryName }])
-    if (error) toast.error("Gagal tambah kategori (mungkin sudah ada?)")
-    else {
-      toast.success("Kategori baru ditambahkan!")
-      setNewCategoryName('')
-      fetchCategories()
-    }
-    setIsBusy(false)
-  }
-
-  const deleteCategory = async (id: string, name: string) => {
-    if (name === 'Lainnya') {
-       toast.error("Kategori 'Lainnya' tidak bisa dihapus")
-       return
-    }
-    if (!window.confirm(`Hapus kategori "${name}"? Menu dengan kategori ini akan tetap ada.`)) return
-    const { error } = await supabase.from('categories').delete().eq('id', id)
-    if (error) toast.error("Gagal hapus kategori")
-    else {
-      toast.success("Kategori dihapus")
-      fetchCategories()
-    }
-  }
-
-  const fetchActiveOrders = async () => {
-    // Proactive cleanup of orders older than 4 hours
-    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
-    
-    // Update old orders to 'done' and 'paid'
-    await supabase
-      .from('orders')
-      .update({ order_status: 'done', payment_status: 'paid' })
-      .eq('order_status', 'waiting')
-      .lt('created_at', fourHoursAgo)
-
-    const { data } = await supabase
-      .from('orders')
-      .select('*, profiles(name)')
-      .eq('order_status', 'waiting')
-      .gt('created_at', fourHoursAgo)
-      .order('created_at', { ascending: false })
-      
-    if (data) setOrders(data)
-  }
-
-  const fetchHistoryOrders = async () => {
-    if (!myObId) return
-
-    const start = (historyPage - 1) * 10
-    const end = start + 9
-
-    const { data, count } = await supabase
-      .from('orders')
-      .select('*, profiles(name)', { count: 'exact' })
-      .eq('order_status', 'done')
-      .eq('assigned_to_ob', myObId)
-      .order('created_at', { ascending: false })
-      .range(start, end)
-      
-    if (data) setHistoryOrders(data)
-    if (count !== null) setTotalHistoryCount(count)
-  }
-
-  const fetchTardutRequests = async () => {
-    const { data } = await supabase
-      .from('tardut_requests')
-      .select('*, profiles(name)')
-      .eq('status', 'waiting')
-      .order('created_at', { ascending: false })
-    if (data) setTardutRequests(data)
-  }
-
-  const handleSelesaikanTardut = async (id: string) => {
-    try {
-      const { error } = await supabase
-        .from('tardut_requests')
-        .update({ status: 'done', assigned_to_ob: myObId })
-        .eq('id', id)
-      
-      if (error) throw error
-      toast.success("Titipan Tardut selesai! ✅")
-      fetchTardutRequests()
-    } catch (err: any) {
-      toast.error(err.message)
-    }
-  }
-
-  const takeOrder = async (id: string) => {
-    if (!myObId) return
-    
-    // Optimistic Update
-    const originalOrders = [...orders]
-    setOrders(current => current.map(o => 
-      o.id === id ? { ...o, assigned_to_ob: myObId } : o
-    ))
-
-    const { error } = await supabase.from('orders').update({ assigned_to_ob: myObId }).eq('id', id)
-    if (error) {
-      toast.error("Gagal mengambil pesanan")
-      setOrders(originalOrders) // Rollback
-    } else {
-      toast.success(`Pesanan diambil oleh ${myObId}!`)
-      // No need to fetch, realtime or manual state update handled it
-    }
-  }
-
-  const releaseOrder = async (id: string) => {
-    // Optimistic Update
-    const originalOrders = [...orders]
-    setOrders(current => current.map(o => 
-      o.id === id ? { ...o, assigned_to_ob: null } : o
-    ))
-
-    const { error } = await supabase.from('orders').update({ assigned_to_ob: null }).eq('id', id)
-    if (error) {
-      toast.error("Gagal melepas pesanan")
-      setOrders(originalOrders) // Rollback
-    } else {
-      toast.success("Pesanan dikembalikan ke daftar umum")
-    }
-  }
-
-  const verifyPayment = async (order: OBOrder) => {
-    if (order.assigned_to_ob !== myObId) {
-      toast.error("Hanya OB yang ditugaskan yang bisa verifikasi!")
-      return
-    }
-
-    // Optimistic Update
-    const originalOrders = [...orders]
-    setOrders(current => current.map(o => 
-      o.id === order.id ? { ...o, payment_status: 'paid' } : o
-    ))
-
-    const { error } = await supabase.from('orders').update({ payment_status: 'paid' }).eq('id', order.id)
-    if (error) {
-      toast.error("Gagal verifikasi pembayaran")
-      setOrders(originalOrders) // Rollback
-    } else {
-      toast.success("Pembayaran berhasil diverifikasi!")
-    }
-  }
-
-  const markAsDone = async (order: OBOrder) => {
-    if (order.assigned_to_ob !== myObId) {
-      toast.error("Hanya OB yang ditugaskan yang bisa menyelesaikan!")
-      return
-    }
-
-    // Optimistic Update
-    const originalOrders = [...orders]
-    setOrders(current => current.filter(o => o.id !== order.id))
-
-    const { error } = await supabase.from('orders').update({ order_status: 'done' }).eq('id', order.id)
-    if (error) {
-      toast.error("Gagal menyelesaikan pesanan")
-      setOrders(originalOrders) // Rollback
-    } else {
-      toast.success("Pesanan diselesaikan!")
-    }
-  }
-
-  const handleAddMenu = async () => {
-    if (!newFoodName || !newFoodPrice) {
-      toast.error("Nama dan harga harus diisi!")
-      return
-    }
-    
-    setIsBusy(true)
-    const { error } = await supabase.from('menus').insert([
-      { food_name: newFoodName, price: Number(newFoodPrice), category: selectedCategory }
-    ])
-
-    if (error) toast.error("Gagal menambah menu")
-    else {
-      toast.success("Menu baru ditambahkan!")
-      setNewFoodName('')
-      setNewFoodPrice('')
-      setIsMenuDrawerOpen(false)
-      fetchMenus()
-    }
-    setIsBusy(false)
-  }
-
-  const handleUpdateMenu = async () => {
-    if (!editingMenu || !newFoodName || !newFoodPrice) return
-    
-    setIsBusy(true)
-    const { error } = await supabase.from('menus').update({
-      food_name: newFoodName,
-      price: Number(newFoodPrice),
-      category: selectedCategory
-    }).eq('id', editingMenu.id)
-
-    if (error) toast.error("Gagal update menu")
-    else {
-      toast.success("Menu berhasil diupdate!")
-      setIsEditDrawerOpen(false)
-      fetchMenus()
-    }
-    setIsBusy(false)
-  }
-
-  const openEditMenu = (menu: Menu) => {
-    setEditingMenu(menu)
-    setNewFoodName(menu.food_name)
-    setNewFoodPrice(menu.price.toString())
-    setSelectedCategory(menu.category || 'Lainnya')
-    setIsEditDrawerOpen(true)
-  }
-
-  const deleteMenu = async (id: string) => {
-    if (!window.confirm("Hapus menu ini?")) return
-    const { error } = await supabase.from('menus').delete().eq('id', id)
-    if (error) toast.error("Gagal menghapus menu")
-    else {
-      toast.success("Menu dihapus!")
-      fetchMenus()
-    }
-  }
-
-  const handleLogout = async () => {
-    if (window.confirm("Apakah Anda yakin ingin keluar?")) {
-      await supabase.auth.signOut()
-    }
-  }
-
-  const formatRupiah = (number: number) => {
-    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number)
-  }
-
-  const ob1Total = orders.filter(o => o.assigned_to_ob === 'OB 1').reduce((acc, o) => acc + o.price, 0)
-  const ob2Total = orders.filter(o => o.assigned_to_ob === 'OB 2').reduce((acc, o) => acc + o.price, 0)
-  const unassignedTotal = orders.filter(o => !o.assigned_to_ob).reduce((acc, o) => acc + o.price, 0)
-
-  return (
-    <div className="flex-1 flex flex-col bg-slate-50 overflow-y-auto">
-      {/* Enhanced Header */}
-      <div className="bg-white px-6 pt-6 pb-2 shadow-[0_4px_20px_-5px_rgba(0,0,0,0.05)] z-20 flex flex-col gap-4 sticky top-0 border-b border-slate-100">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-             <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center text-white shadow-md shadow-amber-500/20">
-                <UtensilsCrossed className="w-6 h-6" />
-             </div>
-             <div>
-                <h2 className="text-xl font-black text-slate-800 tracking-tight leading-none mb-1">MakanMana Admin</h2>
-                <div className="flex items-center gap-1.5 text-[10px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                   <UserCheck className="w-2.5 h-2.5" /> AKSES: {myObId || 'ADMIN'}
-                </div>
-             </div>
-          </div>
-          <button onClick={handleLogout} className="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
-            <LogOut className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Tab System */}
-        <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100 mb-2">
-          <button 
-            onClick={() => setView('orders')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${view === 'orders' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            Pesanan
-          </button>
-          <button 
-            onClick={() => setView('tardut')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${view === 'tardut' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
-          >
-            <Banknote className="w-4 h-4" />
-            Tardut
-          </button>
-          <button 
-            onClick={() => setView('history')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${view === 'history' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
-          >
-            <History className="w-4 h-4" />
-            Riwayat
-          </button>
-          <button 
-            onClick={() => setView('menu')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${view === 'menu' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
-          >
-            <ShoppingBag className="w-4 h-4" />
-            Menu
-          </button>
-        </div>
-      </div>
-
-      <div className="p-5 space-y-6 flex-1">
-        {view === 'orders' && (
-          <>
-            {/* Summaries */}
-            <div className="grid grid-cols-2 gap-3">
-              <div 
-                onClick={() => setSelectedObForDetail('OB 1')}
-                className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm active:scale-95 transition-all cursor-pointer hover:border-amber-200"
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">OB 1 (Bahul)</span>
-                  <div className="bg-amber-100 text-amber-600 p-1 rounded-lg">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                  </div>
-                </div>
-                <p className="text-lg font-black text-slate-800">{formatRupiah(ob1Total)}</p>
-                <p className="text-[10px] font-bold text-slate-500 mt-1 underline decoration-amber-200 underline-offset-2">{orders.filter(o => o.assigned_to_ob === 'OB 1').length} Pesanan (Lihat Detail)</p>
-              </div>
-              <div 
-                onClick={() => setSelectedObForDetail('OB 2')}
-                className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm active:scale-95 transition-all cursor-pointer hover:border-orange-200"
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">OB 2 (Masber)</span>
-                  <div className="bg-orange-100 text-orange-600 p-1 rounded-lg">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                  </div>
-                </div>
-                <p className="text-lg font-black text-slate-800">{formatRupiah(ob2Total)}</p>
-                <p className="text-[10px] font-bold text-slate-500 mt-1 underline decoration-orange-200 underline-offset-2">{orders.filter(o => o.assigned_to_ob === 'OB 2').length} Pesanan (Lihat Detail)</p>
-              </div>
-            </div>
-            
-            {unassignedTotal > 0 && (
-              <div className="bg-red-50/80 rounded-xl p-3 border border-red-200 shadow-sm flex items-center justify-between">
-                <span className="flex items-center text-sm font-bold text-red-600"><AlertTriangle className="w-4 h-4 mr-2" /> Belum Ditugaskan</span>
-                <span className="font-extrabold text-red-700">{formatRupiah(unassignedTotal)}</span>
-              </div>
-            )}
-
-            {/* Incoming Orders List */}
-            <div>
-              <h3 className="font-bold text-slate-800 mb-3 text-lg flex items-center justify-between gap-2">
-                <span>Pesanan Masuk ({orders.length})</span>
-                <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                   {['Semua', 'Bahul', 'Masber'].map((tf) => (
-                      <button 
-                        key={tf}
-                        onClick={() => setTransferFilter(tf as any)}
-                        className={`px-3 py-1 text-[9px] font-black uppercase tracking-tighter rounded-md transition-all ${transferFilter === tf ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-400'}`}
-                      >
-                        {tf}
-                      </button>
-                   ))}
-                </div>
-              </h3>
-              {orders.length === 0 ? (
-                <div className="text-center py-12 flex flex-col items-center text-slate-400 bg-white rounded-[32px] border-2 border-slate-100 border-dashed">
-                  <span className="text-5xl mb-4">😴</span>
-                  <p className="font-bold text-slate-800 text-lg">Semua Aman!</p>
-                  <p className="text-xs text-slate-500 font-medium">Belum ada pesanan masuk pagi ini.</p>
-                </div>
-              ) : (
-                <div className="space-y-4 pb-10">
-                  {orders
-                    .filter(o => transferFilter === 'Semua' || o.transfer_to === transferFilter)
-                    .map(order => {
-                    const isMyOrder = order.assigned_to_ob === myObId
-                    const isSomeoneElseOrder = order.assigned_to_ob && order.assigned_to_ob !== myObId
-
-                    return (
-                      <Card key={order.id} className={`border-0 shadow-sm ring-1 rounded-2xl overflow-hidden transition-opacity ${isSomeoneElseOrder ? 'opacity-60 ring-slate-100' : 'opacity-100 ring-slate-100'}`}>
-                        <div className={`h-1.5 w-full ${order.assigned_to_ob === 'OB 1' ? 'bg-amber-500' : order.assigned_to_ob === 'OB 2' ? 'bg-orange-500' : 'bg-slate-300'}`} />
-                        <CardContent className="p-4 space-y-3">
-                          <div className="flex justify-between items-start gap-3">
-                            <div className="flex-1 pr-2">
-                              <div className="flex items-center gap-2 mb-1.5">
-                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-black rounded uppercase tracking-tighter shadow-xs">
-                                  {order.profiles?.name || 'User'}
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-bold flex items-center"><CalendarClock className="w-3 h-3 mr-1"/> {new Date(order.created_at).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}</span>
-                              </div>
-                              <h4 className="font-black text-lg text-slate-900 leading-tight">{order.food_name}</h4>
-                              <p className="text-amber-600 font-black text-sm mt-0.5">{formatRupiah(order.price)}</p>
-                            </div>
-                            
-                            <div className="shrink-0 flex flex-col items-end">
-                              <span className="text-[10px] bg-slate-50 border border-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase font-black tracking-widest mb-2">
-                                {order.payment_method}
-                              </span>
-                              {order.payment_status === 'paid' ? (
-                                <span className="text-[10px] inline-flex items-center px-2 py-1.5 bg-green-50 text-green-700 font-black rounded-lg border border-green-100/50">
-                                  <CheckCircle className="w-3 h-3 mr-1" /> LUNAS
-                                </span>
-                              ) : (
-                                <div className="flex flex-col items-end gap-1">
-                                  <span className="text-[10px] inline-flex items-center px-2 py-1.5 bg-red-50 text-red-600 font-black rounded-lg border border-red-100/50">
-                                    BELUM BAYAR
-                                  </span>
-                                  {order.transfer_to && (
-                                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full border ${order.transfer_to === 'Bahul' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>
-                                      TF KE: {order.transfer_to}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {order.catatan && (
-                            <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100/50 flex items-start gap-2 italic">
-                              <MessageSquare className="w-3.5 h-3.5 text-amber-500 mt-1 shrink-0" />
-                              <p className="text-xs text-amber-800 font-medium leading-relaxed">{order.catatan}</p>
-                            </div>
-                          )}
-
-                          {order.payment_method === 'transfer' && order.proof_url && (
-                            <div className="bg-slate-50/50 p-2.5 rounded-2xl border border-slate-200/50 flex justify-between items-center group">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 group-hover:text-amber-500 transition-colors shadow-xs">
-                                  <ImageIcon className="w-4 h-4" />
-                                </div>
-                                <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider">BUKTI TF</span>
-                              </div>
-                              <a href={order.proof_url} target="_blank" rel="noopener noreferrer" className="text-white bg-slate-800 px-4 py-2 rounded-xl border border-slate-900 text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all active:scale-95 shadow-lg">
-                                Lihat Gambar
-                              </a>
-                            </div>
-                          )}
-
-                          <div className="grid grid-cols-2 gap-2.5 pt-3 border-t border-slate-100">
-                            {/* Assignment Button */}
-                            {!order.assigned_to_ob ? (
-                              <Button 
-                                onClick={() => takeOrder(order.id)}
-                                className="col-span-2 rounded-2xl font-black h-12 text-[10px] uppercase tracking-widest bg-amber-500 text-white shadow-lg shadow-amber-500/20"
-                              >
-                                🚩 AMBIL PESANAN
-                              </Button>
-                            ) : isMyOrder ? (
-                              <Button 
-                                variant="outline"
-                                onClick={() => releaseOrder(order.id)}
-                                className="col-span-2 rounded-2xl font-black h-10 text-[10px] uppercase tracking-widest text-slate-400 border-slate-200 hover:bg-red-50 hover:text-red-500"
-                              >
-                                🔓 LEPAS PESANAN KE UMUM
-                              </Button>
-                            ) : (
-                              <div className="col-span-2 bg-slate-50 rounded-2xl py-3 px-4 flex items-center justify-between border border-slate-100">
-                                <span className="text-[10px] font-black text-slate-400 uppercase">DIAMBIL OLEH</span>
-                                <span className="text-[10px] font-black text-slate-800 bg-white px-2 py-1 rounded-lg border border-slate-200">{order.assigned_to_ob}</span>
-                              </div>
-                            )}
-                            
-                            {/* Actions restricted to current OB */}
-                            {isMyOrder && (
-                              <>
-                                {order.payment_status !== 'paid' ? (
-                                  <Button 
-                                    onClick={() => verifyPayment(order)}
-                                    className="col-span-2 rounded-2xl font-black h-12 text-[10px] uppercase tracking-widest bg-slate-800 text-white hover:bg-black"
-                                  >
-                                    VERIFIKASI BAYAR
-                                  </Button>
-                                ) : (
-                                  <Button 
-                                    onClick={() => markAsDone(order)}
-                                    className="col-span-2 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black h-12 text-[10px] uppercase tracking-widest shadow-lg shadow-green-500/20" 
-                                  >
-                                    SELESAI PESANAN ✅
-                                  </Button>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-
-        {view === 'history' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-               <h3 className="font-black text-slate-800 text-xl flex items-center gap-2">
-                 Riwayat Saya 💪
-               </h3>
-               <span className="bg-slate-200 text-slate-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">{historyOrders.length} Selesai</span>
-            </div>
-
-            {historyOrders.length === 0 ? (
-              <div className="text-center py-20 flex flex-col items-center text-slate-400 bg-white rounded-[32px] border-2 border-slate-100 border-dashed">
-                <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-4">
-                  <History className="w-8 h-8 text-slate-200" />
-                </div>
-                <p className="font-bold text-slate-800 text-lg">Belum Ada Riwayat</p>
-                <p className="text-xs text-slate-500 font-medium max-w-[200px]">Semua pesanan yang kamu selesaikan akan muncul di sini.</p>
-              </div>
-            ) : (
-              <div className="space-y-4 pb-10">
-                {historyOrders.map(order => (
-                  <Card key={order.id} className="border-0 shadow-sm ring-1 ring-slate-100 rounded-2xl overflow-hidden bg-white/50 backdrop-blur-sm">
-                    <CardContent className="p-4 flex items-center justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">
-                            {order.profiles?.name || 'User'} • {new Date(order.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                          </span>
-                        </div>
-                        <h4 className="font-bold text-slate-800 leading-tight">{order.food_name}</h4>
-                        <p className="text-slate-500 font-bold text-xs">{formatRupiah(order.price)}</p>
-                      </div>
-                      <div className="shrink-0 flex flex-col items-end gap-2">
-                        <div className="flex items-center gap-1.5 bg-green-50 text-green-600 px-2.5 py-1 rounded-full border border-green-100">
-                          <CheckCircle className="w-3 h-3" />
-                          <span className="text-[9px] font-black uppercase tracking-widest">Selesai</span>
-                        </div>
-                        <span className="text-[9px] font-bold text-slate-400">
-                          {new Date(order.updated_at || order.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-
-            {totalHistoryCount > 10 && (
-              <div className="flex items-center justify-between pt-2 pb-12">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={historyPage === 1}
-                  onClick={() => setHistoryPage(p => p - 1)}
-                  className="rounded-xl font-bold bg-white border-slate-100 text-slate-500 h-10 px-4 active:scale-95 transition-all"
-                >
-                  <ChevronLeft className="w-4 h-4 mr-1 text-amber-500" /> Prev
-                </Button>
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Halaman</span>
-                  <span className="text-sm font-black text-slate-800">{historyPage} <span className="text-slate-300 mx-1">/</span> {Math.ceil(totalHistoryCount / 10)}</span>
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={historyPage >= Math.ceil(totalHistoryCount / 10)}
-                  onClick={() => setHistoryPage(p => p + 1)}
-                  className="rounded-xl font-bold bg-white border-slate-100 text-slate-500 h-10 px-4 active:scale-95 transition-all"
-                >
-                  Next <ChevronRight className="w-4 h-4 ml-1 text-amber-500" />
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {view === 'menu' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-black text-slate-800 text-xl tracking-tight">Katalog Menu</h3>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{menus.length} Item Tersedia</p>
-              </div>
-              <Button onClick={() => {
-                setEditingMenu(null)
-                setNewFoodName('')
-                setNewFoodPrice('')
-                setIsMenuDrawerOpen(true)
-              }} className="rounded-2xl h-12 px-6 bg-amber-500 hover:bg-amber-600 text-white font-black shadow-lg shadow-amber-500/30 flex items-center gap-2">
-                <Plus className="w-5 h-5" /> TAMBAH MENU
-              </Button>
-            </div>
-
-            <div className="flex gap-2 pb-4">
-               <Button 
-                 variant="outline" 
-                 onClick={() => setIsCategoryDrawerOpen(true)}
-                 className="rounded-xl font-bold text-xs border-slate-200 text-slate-500 flex items-center gap-2 hover:bg-slate-50"
-               >
-                 📂 KELOLA KATEGORI
-               </Button>
-            </div>
-
-            <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide -mx-6 px-6">
-              {['Semua', ...dbCategories.map(c => c.name)].map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setCatFilter(cat)}
-                  className={`shrink-0 px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${catFilter === cat ? 'bg-amber-500 border-amber-600 text-white shadow-lg shadow-amber-500/20' : 'bg-white border-slate-100 text-slate-500 hover:border-amber-200'}`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 pb-10">
-              {(() => {
-                const filteredMenus = menus.filter(m => catFilter === 'Semua' || m.category === catFilter)
-                if (filteredMenus.length === 0) {
-                  return (
-                    <div className="text-center py-20 bg-white/50 rounded-[32px] border-2 border-slate-100 border-dashed backdrop-blur-sm">
-                      <p className="text-slate-400 font-bold italic">
-                        {catFilter === 'Semua' 
-                          ? "Menu kosong. Klik tombol di atas untuk menambah." 
-                          : `Tidak ada menu di kategori "${catFilter}".`}
-                      </p>
-                    </div>
-                  )
-                }
-                return filteredMenus.map(m => (
-                  <Card key={m.id} className="border border-slate-100 shadow-xs rounded-2xl overflow-hidden group">
-                    <CardContent className="p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                         <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">🥡</div>
-                         <div>
-                            <h4 className="font-bold text-slate-800 leading-tight">{m.food_name}</h4>
-                            <p className="text-amber-600 font-black text-sm">{formatRupiah(m.price)}</p>
-                         </div>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => openEditMenu(m)} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => deleteMenu(m.id)} className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              })()}
-            </div>
-
-            {/* Footer Credit */}
-            <div className="py-10 text-center opacity-30">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Application Created by Dewa</p>
-            </div>
-          </div>
-        )}
-
-        {view === 'tardut' && (
-           <div className="space-y-4">
-             <div className="flex items-center justify-between mb-4">
-               <h2 className="text-xl font-black text-slate-800 tracking-tight">Titipan Tardut ({tardutRequests.length})</h2>
-               <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-xl">💵</div>
-             </div>
-
-             {tardutRequests.length === 0 ? (
-               <div className="bg-slate-50 rounded-[32px] p-10 flex flex-col items-center justify-center text-center border-2 border-dashed border-slate-200">
-                 <div className="w-20 h-20 bg-white rounded-[24px] flex items-center justify-center text-4xl mb-4 shadow-sm">✨</div>
-                 <h3 className="font-black text-slate-800 mb-1">Tidak ada titipan</h3>
-                 <p className="text-xs text-slate-400 font-medium">Belum ada teman-teman yang minta tarik tunai.</p>
-               </div>
-             ) : (
-               <div className="space-y-4">
-                 {tardutRequests.map((req) => (
-                   <div key={req.id} className="bg-white rounded-[32px] p-6 border border-slate-100 shadow-sm relative overflow-hidden group">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                             <div className="px-2 py-0.5 bg-slate-100 rounded-md text-[9px] font-black text-slate-500 uppercase tracking-wider">
-                               {req.profiles?.name || 'User'}
-                             </div>
-                             <div className="text-[10px] text-slate-400 flex items-center gap-1 font-bold">
-                               <CalendarClock className="w-3 h-3" /> {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                             </div>
-                          </div>
-                          <h3 className="text-xl font-black text-slate-800 mb-1">
-                            {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(req.amount)}
-                          </h3>
-                        </div>
-                        <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner border border-amber-100">
-                          🏦
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 mt-4">
-                        <Button 
-                          variant="outline" 
-                          onClick={() => {
-                            setSelectedTardut(req)
-                            setIsTardutModalOpen(true)
-                          }}
-                          className="h-12 border-slate-200 rounded-xl font-bold text-xs"
-                        >
-                          <ImageIcon className="w-4 h-4 mr-2" />
-                          BUKTI TF
-                        </Button>
-                        <Button 
-                          onClick={() => handleSelesaikanTardut(req.id)}
-                          className="h-12 bg-slate-900 text-white rounded-xl font-black text-xs shadow-lg shadow-slate-900/20 active:scale-95 transition-all"
-                        >
-                          SELESAIKAN ✅
-                        </Button>
-                      </div>
-                   </div>
-                 ))}
-               </div>
-             )}
-           </div>
-         )}
-      </div>
-
-      {/* Add Menu Drawer */}
-      <Drawer open={isMenuDrawerOpen} onOpenChange={setIsMenuDrawerOpen}>
-        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6">
-          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-8" />
-          <DrawerHeader className="px-0">
-            <DrawerTitle className="text-2xl font-black text-slate-800">Makanan Baru 🥘</DrawerTitle>
-            <DrawerDescription className="text-slate-500 font-medium">Tambahkan menu baru ke pilihan jajan user.</DrawerDescription>
-          </DrawerHeader>
-
-          <div className="space-y-6 py-6">
-            <div className="space-y-2">
-              <Label className="text-slate-700 font-bold text-sm ml-1 uppercase tracking-widest">Kategori</Label>
-              <div className="flex flex-wrap gap-2 pt-1">
-                {dbCategories.map(cat => (
-                  <button
-                    key={cat.id}
-                    onClick={() => setSelectedCategory(cat.name)}
-                    className={`px-4 py-2 rounded-xl text-[10px] font-black border transition-all ${selectedCategory === cat.name ? 'bg-amber-500 border-amber-600 text-white shadow-md scale-105' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-amber-200'}`}
-                  >
-                    {cat.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-700 font-bold text-sm ml-1 uppercase tracking-widest">Nama Makanan</Label>
-              <Input 
-                placeholder="Contoh: Nasi Goreng Gila" 
-                value={newFoodName}
-                onChange={(e) => setNewFoodName(e.target.value)}
-                className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus:bg-white transition-all text-base"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-700 font-bold text-sm ml-1 uppercase tracking-widest">Harga (Rp)</Label>
-              <Input 
-                type="number"
-                placeholder="Contoh: 15000" 
-                value={newFoodPrice}
-                onChange={(e) => setNewFoodPrice(e.target.value)}
-                className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus:bg-white transition-all text-base"
-              />
-            </div>
-          </div>
-
-          <DrawerFooter className="px-0 pb-8">
-            <Button onClick={handleAddMenu} disabled={isBusy} className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black text-base shadow-xl active:scale-95 transition-all">
-              {isBusy ? 'Menambah...' : 'SIMPAN MENU 💾'}
-            </Button>
-            <Button variant="ghost" onClick={() => setIsMenuDrawerOpen(false)} className="w-full h-12 text-slate-400 font-bold">Batal</Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
-
-      {/* Edit Menu Drawer */}
-      <Drawer open={isEditDrawerOpen} onOpenChange={setIsEditDrawerOpen}>
-        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6">
-          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-8" />
-          <DrawerHeader className="px-0">
-            <DrawerTitle className="text-2xl font-black text-slate-800">Edit Menu 📝</DrawerTitle>
-            <DrawerDescription className="text-slate-500 font-medium">Ubah detail menu jajan.</DrawerDescription>
-          </DrawerHeader>
-
-          <div className="space-y-6 py-6">
-            <div className="space-y-2">
-              <Label className="text-slate-700 font-bold text-sm ml-1 uppercase tracking-widest">Kategori</Label>
-              <div className="flex flex-wrap gap-2 pt-1">
-                {dbCategories.map(cat => (
-                  <button
-                    key={cat.id}
-                    onClick={() => setSelectedCategory(cat.name)}
-                    className={`px-4 py-2 rounded-xl text-[10px] font-black border transition-all ${selectedCategory === cat.name ? 'bg-amber-500 border-amber-600 text-white shadow-md scale-105' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-amber-200'}`}
-                  >
-                    {cat.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-700 font-bold text-sm ml-1 uppercase tracking-widest">Nama Makanan</Label>
-              <Input 
-                value={newFoodName}
-                onChange={(e) => setNewFoodName(e.target.value)}
-                className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus:bg-white transition-all text-base"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-700 font-bold text-sm ml-1 uppercase tracking-widest">Harga (Rp)</Label>
-              <Input 
-                type="number"
-                value={newFoodPrice}
-                onChange={(e) => setNewFoodPrice(e.target.value)}
-                className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus:bg-white transition-all text-base"
-              />
-            </div>
-          </div>
-
-          <DrawerFooter className="px-0 pb-8">
-            <Button onClick={handleUpdateMenu} disabled={isBusy} className="w-full h-14 rounded-2xl bg-amber-500 text-white font-black text-base shadow-xl active:scale-95 transition-all">
-              {isBusy ? 'Menyimpan...' : 'UPDATE MENU ✅'}
-            </Button>
-            <Button variant="ghost" onClick={() => setIsEditDrawerOpen(false)} className="w-full h-12 text-slate-400 font-bold">Batal</Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
-      {/* Category Management Drawer */}
-      <Drawer open={isCategoryDrawerOpen} onOpenChange={setIsCategoryDrawerOpen}>
-        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6">
-          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-8" />
-          <DrawerHeader className="px-0">
-            <DrawerTitle className="text-2xl font-black text-slate-800">Kelola Kategori 📂</DrawerTitle>
-            <DrawerDescription className="text-slate-500 font-medium">Tambah atau hapus kategori menu jajan.</DrawerDescription>
-          </DrawerHeader>
-
-          <div className="space-y-6 py-6">
-            <div className="space-y-3">
-              <Label className="text-slate-700 font-bold text-xs uppercase tracking-widest">Kategori Saat Ini</Label>
-              <div className="flex flex-wrap gap-2">
-                {dbCategories.map(cat => (
-                  <div key={cat.id} className="group flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-xl border border-slate-200">
-                    <span className="text-xs font-bold text-slate-700">{cat.name}</span>
-                    {cat.name !== 'Lainnya' && (
-                      <button 
-                         onClick={() => deleteCategory(cat.id, cat.name)}
-                         className="text-slate-400 hover:text-red-500 transition-colors"
-                      >
-                         <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2 pt-4 border-t border-slate-100">
-              <Label className="text-slate-700 font-bold text-xs uppercase tracking-widest">Tambah Kategori Baru</Label>
-              <div className="flex gap-2">
-                <Input 
-                  placeholder="Contoh: Takoyaki" 
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  className="rounded-xl h-12 bg-slate-50 border-slate-100"
-                />
-                <Button 
-                  onClick={handleAddCategory}
-                  disabled={isBusy}
-                  className="rounded-xl bg-slate-900 text-white px-6 font-bold"
-                >
-                  TAMBAH
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <DrawerFooter className="px-0 pb-8">
-            <Button variant="ghost" onClick={() => setIsCategoryDrawerOpen(false)} className="w-full h-12 text-slate-400 font-bold uppercase tracking-widest text-[10px]">Tutup</Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
-      <Drawer open={!!selectedObForDetail} onOpenChange={() => setSelectedObForDetail(null)}>
-        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6 pb-8">
-          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
-          <DrawerHeader className="px-0">
-            <DrawerTitle className="text-2xl font-black text-slate-800 flex items-center gap-2">
-              Detail Pesanan {selectedObForDetail}
-            </DrawerTitle>
-            <DrawerDescription className="text-slate-500 font-medium">
-              Daftar makanan yang sedang diproses oleh {selectedObForDetail}.
-            </DrawerDescription>
-          </DrawerHeader>
-
-          <div className="space-y-3 py-4 max-h-[50vh] overflow-y-auto pr-1">
-            {orders.filter(o => o.assigned_to_ob === selectedObForDetail).map((order) => (
-              <div key={order.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                <div className="flex-1 pr-3">
-                  <p className="text-xs font-black text-amber-600 uppercase tracking-tighter mb-1">{order.profiles?.name || 'User'}</p>
-                  <h4 className="font-bold text-slate-800 leading-tight">{order.food_name}</h4>
-                  {order.catatan && (
-                    <p className="text-[10px] text-amber-600 font-medium mt-1 italic flex items-start gap-1">
-                      <span className="shrink-0">📝</span> {order.catatan}
-                    </p>
-                  )}
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest ${order.payment_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {order.payment_status === 'paid' ? 'LUNAS' : 'BELUM BAYAR'}
-                    </span>
-                    <span className="text-[10px] font-bold text-slate-400">{formatRupiah(order.price)}</span>
-                  </div>
-                </div>
-                <div className="shrink-0">
-                  <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-sm shadow-sm">🥡</div>
-                </div>
-              </div>
-            ))}
-            {orders.filter(o => o.assigned_to_ob === selectedObForDetail).length === 0 && (
-              <div className="text-center py-10">
-                <p className="text-slate-400 font-bold italic">Belum ada pesanan yang diambil.</p>
-              </div>
-            )}
-          </div>
-
-          <DrawerFooter className="px-0 pt-2">
-            <Button onClick={() => setSelectedObForDetail(null)} className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black text-base shadow-xl active:scale-95 transition-all">
-              TUTUP ✅
-            </Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
-
-      {/* TARDUT PROOF MODAL */}
-      <Drawer open={isTardutModalOpen} onOpenChange={setIsTardutModalOpen}>
-         <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-12 border-0 shadow-2xl">
-           <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
-           <DrawerHeader className="px-0">
-             <DrawerTitle className="text-2xl font-black text-slate-800">Bukti Transfer Tardut</DrawerTitle>
-             <DrawerDescription className="text-slate-500 font-medium">
-               Cek bukti transfer dari {selectedTardut?.profiles?.name} sebelum memberikan uang tunai.
-             </DrawerDescription>
-           </DrawerHeader>
-
-           <div className="mt-4 bg-slate-100 rounded-3xl overflow-hidden shadow-inner border border-slate-100 aspect-square flex items-center justify-center mb-6">
-             {selectedTardut?.proof_url ? (
-               <img src={selectedTardut.proof_url} alt="Bukti Transfer" className="w-full h-full object-contain" />
-             ) : (
-               <div className="text-slate-400 font-bold">Bukti tidak tersedia</div>
-             )}
-           </div>
-
-           <DrawerFooter className="px-0">
-             <Button 
-                onClick={() => setIsTardutModalOpen(false)}
-                className="w-full h-16 rounded-3xl bg-slate-900 text-white font-black text-lg shadow-2xl shadow-slate-900/40"
-             >
-                TUTUP
-             </Button>
-           </DrawerFooter>
-         </DrawerContent>
-       </Drawer>
-
-    </div>
-  )
+	const {
+		activeOrders,
+		takeOrder,
+		releaseOrder,
+		verifyPayment,
+		completeOrder
+	} = useOrders({ role: 'ob' })
+
+	// Tab states
+	const [view, setView] = useState<'orders' | 'tardut' | 'history' | 'menu'>('orders')
+	const [historyType, setHistoryType] = useState<'food' | 'tardut'>('food')
+	const [foodHistoryPage, setFoodHistoryPage] = useState(1)
+	const [tardutHistoryPage, setTardutHistoryPage] = useState(1)
+	const itemsPerPage = 10
+
+	// Paginated Food History
+	const { historyOrders, totalCount: totalFoodHistory } = useOrders({
+		role: 'ob',
+		status: 'done',
+		limit: itemsPerPage,
+		offset: (foodHistoryPage - 1) * itemsPerPage
+	})
+
+	// Paginated Tardut History
+	const { requests: historyTardut, totalCount: totalTardutHistory } = useTardut({
+		status: 'done',
+		limit: itemsPerPage,
+		offset: (tardutHistoryPage - 1) * itemsPerPage
+	})
+
+	// Active Tardut (for the TARDUT tab)
+	const { requests: tardutRequests, updateTardutStatus } = useTardut({ status: 'waiting' })
+	const [menus, setMenus] = useState<Menu[]>([])
+	const [transferFilter, setTransferFilter] = useState<'all' | 'Bahul' | 'Masber'>('all')
+
+	// Summary stats
+	const ob1Total = activeOrders?.filter(o => o.assigned_to_ob === 'OB 1').reduce((acc, o) => acc + o.price, 0) || 0
+	const ob2Total = activeOrders?.filter(o => o.assigned_to_ob === 'OB 2').reduce((acc, o) => acc + o.price, 0) || 0
+	const unassignedTotal = activeOrders?.filter(o => !o.assigned_to_ob).reduce((acc, o) => acc + o.price, 0) || 0
+
+	const filteredActiveOrders = activeOrders?.filter(o => {
+		if (transferFilter === 'all') return true
+		return o.transfer_to === transferFilter
+	}) || []
+
+	const formatRupiah = (number: number) => {
+		return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number)
+	}
+
+	// Active Tardut filtering (last 24h)
+	const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+	const filteredActiveTardut = (tardutRequests || []).filter(r => r.created_at > twentyFourHoursAgo)
+
+	// Menu state
+	const [isMenuDrawerOpen, setIsMenuDrawerOpen] = useState(false)
+	const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
+	const [editingMenu, setEditingMenu] = useState<Menu | null>(null)
+	const [newFoodName, setNewFoodName] = useState('')
+	const [newFoodPrice, setNewFoodPrice] = useState('')
+
+	// Categories state
+	const [activeFilterCategory, setActiveFilterCategory] = useState('Semua')
+	const [dbCategories, setDbCategories] = useState<string[]>([])
+	const [menuFormCategory, setMenuFormCategory] = useState('Lainnya')
+	const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false)
+	const [isBusy, setIsBusy] = useState(false)
+	const [selectedObForDetail, setSelectedObForDetail] = useState<string | null>(null)
+	const [myObId, setMyObId] = useState<string | null>(null)
+
+	const lastUpdateRef = useRef<number>(0)
+
+	useEffect(() => {
+		fetchMyProfile()
+		fetchMenus()
+		fetchCategories()
+	}, [])
+
+	useEffect(() => {
+		if (view !== 'orders' || !session.user.id) return
+
+		const watchId = navigator.geolocation.watchPosition(
+			async (position) => {
+				const now = Date.now()
+				if (now - lastUpdateRef.current < 10000) return
+				lastUpdateRef.current = now
+				await supabase.from('profiles').update({
+					last_lat: position.coords.latitude,
+					last_lng: position.coords.longitude,
+					last_updated_at: new Date().toISOString()
+				}).eq('id', session.user.id)
+			},
+			(err) => console.warn('Geolocation error:', err),
+			{ enableHighAccuracy: true, timeout: 10000 }
+		)
+		return () => navigator.geolocation.clearWatch(watchId)
+	}, [view, session.user.id])
+
+	const fetchMyProfile = async () => {
+		const { data } = await supabase.from('profiles').select('name').eq('id', session.user.id).single()
+		if (data) {
+			const name = data.name.toLowerCase()
+			if (name.includes('bahul')) setMyObId('OB 1')
+			else if (name.includes('masber')) setMyObId('OB 2')
+			else setMyObId(data.name)
+		}
+	}
+
+	const fetchMenus = async () => {
+		const { data } = await supabase.from('menus').select('*').order('food_name')
+		if (data) setMenus(data)
+	}
+
+	const fetchCategories = async () => {
+		const { data } = await supabase.from('categories').select('name').order('name')
+		if (data) setDbCategories(data.map(c => c.name))
+	}
+
+	const handleAddCategory = async (name: string) => {
+		setIsBusy(true)
+		const { error } = await supabase.from('categories').insert({ name })
+		if (error) {
+			toast.error("Gagal tambah kategori: " + error.message)
+		} else {
+			toast.success("Kategori ditambah")
+			fetchCategories()
+		}
+		setIsBusy(false)
+	}
+
+	const handleDeleteCategory = async (name: string) => {
+		if (!window.confirm(`Hapus kategori "${name}"? Menu dengan kategori ini tidak akan terhapus.`)) return
+		setIsBusy(true)
+		const { error } = await supabase.from('categories').delete().eq('name', name)
+		if (error) {
+			toast.error("Gagal hapus kategori: " + error.message)
+		} else {
+			toast.success("Kategori dihapus")
+			fetchCategories()
+		}
+		setIsBusy(false)
+	}
+
+
+	const handleLogout = async () => {
+		if (window.confirm("Keluar dari aplikasi?")) await supabase.auth.signOut()
+	}
+
+	const handleAddMenu = async () => {
+		if (!newFoodName || !newFoodPrice) return toast.error("Isi semua data")
+		setIsBusy(true)
+		const { error } = await supabase.from('menus').insert([{ food_name: newFoodName, price: Number(newFoodPrice), category: menuFormCategory }])
+		if (!error) {
+			toast.success("Menu ditambah")
+			setNewFoodName(''); setNewFoodPrice('')
+			setIsMenuDrawerOpen(false); fetchMenus()
+		}
+		setIsBusy(false)
+	}
+
+	const handleUpdateMenu = async () => {
+		if (!editingMenu) return
+		setIsBusy(true)
+		const { error } = await supabase.from('menus').update({ food_name: newFoodName, price: Number(newFoodPrice), category: menuFormCategory }).eq('id', editingMenu.id)
+		if (!error) {
+			toast.success("Menu diupdate")
+			setIsEditDrawerOpen(false); fetchMenus()
+		}
+		setIsBusy(false)
+	}
+
+	return (
+		<div className="flex-1 flex flex-col bg-slate-50 overflow-y-auto">
+			{/* Header */}
+			<div className="bg-white px-6 pt-6 pb-2 shadow-sm z-20 sticky top-0 border-b border-slate-100">
+				<div className="flex items-center justify-between mb-4">
+					<div className="flex items-center gap-3">
+						<div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center text-white"><UtensilsCrossed className="w-6 h-6" /></div>
+						<div>
+							<h2 className="text-xl font-black text-slate-800 tracking-tight">MakanMana Admin</h2>
+							<p className="text-[10px] font-black text-amber-600 bg-amber-50 px-2 rounded-full border border-amber-200 uppercase">{myObId || 'ADMIN'}</p>
+						</div>
+					</div>
+					<button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition"><LogOut className="w-6 h-6" /></button>
+				</div>
+
+				<div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100 mb-2">
+					{(['orders', 'tardut', 'history', 'menu'] as const).map(t => (
+						<button
+							key={t}
+							onClick={() => setView(t)}
+							className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${view === t ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
+						>
+							{t}
+						</button>
+					))}
+				</div>
+			</div>
+
+			<div className="p-5 space-y-6 flex-1">
+				{view === 'orders' && (
+					<>
+						{filteredActiveTardut.length > 0 && (
+							<div
+								onClick={() => setView('tardut')}
+								className="bg-amber-500 rounded-[24px] p-5 flex items-center justify-between cursor-pointer shadow-lg shadow-amber-500/20 active:scale-95 transition-all animate-pulse border-b-4 border-amber-600 mb-2"
+							>
+								<div className="flex items-center gap-4">
+									<div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+										💸
+									</div>
+									<div>
+										<h4 className="font-black text-white text-sm tracking-tight">PERMINTAAN TARDUT PENDING</h4>
+										<p className="text-white/80 text-[10px] font-bold uppercase tracking-widest">Ada {filteredActiveTardut.length} permintaan masuk untuk tardut</p>
+									</div>
+								</div>
+								<div className="bg-white/20 px-4 py-2 rounded-xl text-white text-[10px] font-black uppercase tracking-widest">
+									LIHAT
+								</div>
+							</div>
+						)}
+
+						<div className="grid grid-cols-2 gap-3">
+							<div onClick={() => setSelectedObForDetail('OB 1')} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm active:scale-95 cursor-pointer">
+								<p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">OB 1 (Bahul)</p>
+								<p className="text-lg font-black text-slate-800">{formatRupiah(ob1Total)}</p>
+								<p className="text-[10px] font-bold text-amber-600 mt-1 underline">{(activeOrders || []).filter(o => o.assigned_to_ob === 'OB 1').length} Pesanan</p>
+							</div>
+							<div onClick={() => setSelectedObForDetail('OB 2')} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm active:scale-95 cursor-pointer">
+								<p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">OB 2 (Masber)</p>
+								<p className="text-lg font-black text-slate-800">{formatRupiah(ob2Total)}</p>
+								<p className="text-[10px] font-bold text-orange-600 mt-1 underline">{(activeOrders || []).filter(o => o.assigned_to_ob === 'OB 2').length} Pesanan</p>
+							</div>
+						</div>
+
+						{unassignedTotal > 0 && (
+							<div className="bg-red-50 rounded-xl p-3 border border-red-200 text-red-600 font-bold text-sm flex justify-between">
+								<span>🚨 Belum Ditugaskan</span>
+								<span className="font-black">{formatRupiah(unassignedTotal)}</span>
+							</div>
+						)}
+
+						<div>
+							<div className="flex items-center justify-between mb-3">
+								<h3 className="font-bold text-slate-800 text-lg">Pesanan Aktif ({filteredActiveOrders.length})</h3>
+								<div className="flex bg-white rounded-xl p-1 border border-slate-100 shadow-sm">
+									{(['all', 'Bahul', 'Masber'] as const).map(f => (
+										<button
+											key={f}
+											onClick={() => setTransferFilter(f)}
+											className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter transition-all ${transferFilter === f ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+										>
+											{f === 'all' ? 'Semua' : f}
+										</button>
+									))}
+								</div>
+							</div>
+							<div className="space-y-4">
+								{filteredActiveOrders.map(order => (
+									<OrderCard
+										key={order.id}
+										order={order}
+										role="ob"
+										currentObId={myObId || ''}
+										formatRupiah={formatRupiah}
+										onTake={(id) => takeOrder(id, myObId || 'OB 1')}
+										onRelease={releaseOrder}
+										onVerifyPayment={(o) => verifyPayment(o.id)}
+										onMarkDone={(o) => completeOrder(o.id)}
+									/>
+								))}
+							</div>
+						</div>
+					</>
+				)}
+
+				{view === 'history' && (
+					<div className="space-y-6">
+						<div className="flex items-center justify-between">
+							<h3 className="font-black text-slate-800 text-xl">Riwayat Selesai 💪</h3>
+							<div className="flex bg-white rounded-xl p-1 border border-slate-100 shadow-sm">
+								<button onClick={() => setHistoryType('food')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter transition-all ${historyType === 'food' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-400'}`}>Makanan</button>
+								<button onClick={() => setHistoryType('tardut')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter transition-all ${historyType === 'tardut' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-400'}`}>Tardut</button>
+							</div>
+						</div>
+
+						{historyType === 'food' ? (
+							<div className="space-y-4">
+								{(historyOrders || []).map(order => (
+									<Card key={order.id} className="border-0 shadow-sm rounded-2xl bg-white">
+										<CardContent className="p-4 flex items-center justify-between">
+											<div>
+												<p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{order.profiles?.name} • {new Date(order.created_at).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} • {new Date(order.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</p>
+												<h4 className="font-bold text-slate-800">{order.food_name}</h4>
+												<p className="text-amber-600 font-black text-sm">{formatRupiah(order.price)}</p>
+											</div>
+											<div className="flex items-center gap-1.5 bg-green-50 text-green-600 px-2.5 py-1 rounded-full border border-green-100">
+												<CheckCircle className="w-3 h-3" />
+												<span className="text-[9px] font-black uppercase tracking-widest">Selesai</span>
+											</div>
+										</CardContent>
+									</Card>
+								))}
+
+								<div className="pt-4 flex items-center justify-between px-2">
+									<Button
+										disabled={foodHistoryPage === 1}
+										onClick={() => setFoodHistoryPage(p => p - 1)}
+										className="h-10 px-4 bg-white text-slate-900 border border-slate-200 font-bold text-[10px]"
+									>
+										SEBELUMNYA
+									</Button>
+									<span className="text-[10px] font-black text-slate-400">HALAMAN {foodHistoryPage} / {Math.ceil(totalFoodHistory / itemsPerPage) || 1}</span>
+									<Button
+										disabled={foodHistoryPage >= Math.ceil(totalFoodHistory / itemsPerPage)}
+										onClick={() => setFoodHistoryPage(p => p + 1)}
+										className="h-10 px-4 bg-white text-slate-900 border border-slate-200 font-bold text-[10px]"
+									>
+										BERIKUTNYA
+									</Button>
+								</div>
+							</div>
+						) : (
+							<div className="space-y-4">
+								{(historyTardut || []).map(req => (
+									<Card key={req.id} className="border-0 shadow-sm rounded-2xl bg-white">
+										<CardContent className="p-4 flex items-center justify-between">
+											<div>
+												<p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{req.profiles?.name} • {new Date(req.created_at).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} • {new Date(req.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</p>
+												<h4 className="font-extrabold text-slate-800">Tardut {formatRupiah(req.amount)}</h4>
+												<div className="flex items-center gap-1.5 mt-1">
+													<span className="text-[9px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">💰 TARDUT</span>
+												</div>
+											</div>
+											<div className="flex items-center gap-1.5 bg-slate-50 text-slate-600 px-2.5 py-1 rounded-full border border-slate-100">
+												<CheckCircle className="w-3 h-3" />
+												<span className="text-[9px] font-black uppercase tracking-widest">Selesai</span>
+											</div>
+										</CardContent>
+									</Card>
+								))}
+
+								<div className="pt-4 flex items-center justify-between px-2">
+									<Button
+										disabled={tardutHistoryPage === 1}
+										onClick={() => setTardutHistoryPage(p => p - 1)}
+										className="h-10 px-4 bg-white text-slate-900 border border-slate-200 font-bold text-[10px]"
+									>
+										SEBELUMNYA
+									</Button>
+									<span className="text-[10px] font-black text-slate-400">HALAMAN {tardutHistoryPage} / {Math.ceil(totalTardutHistory / itemsPerPage) || 1}</span>
+									<Button
+										disabled={tardutHistoryPage >= Math.ceil(totalTardutHistory / itemsPerPage)}
+										onClick={() => setTardutHistoryPage(p => p + 1)}
+										className="h-10 px-4 bg-white text-slate-900 border border-slate-200 font-bold text-[10px]"
+									>
+										BERIKUTNYA
+									</Button>
+								</div>
+							</div>
+						)}
+					</div>
+				)}
+
+				{view === 'menu' && (
+					<div className="space-y-6">
+						<div>
+							<div className="flex justify-between items-center mb-1">
+								<h3 className="font-black text-slate-800 text-xl tracking-tight">Katalog Menu</h3>
+								<Button onClick={() => {
+									setNewFoodName('');
+									setNewFoodPrice('');
+									setMenuFormCategory('Lainnya');
+									setIsMenuDrawerOpen(true);
+								}} className="bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl">
+									<Plus className="w-4 h-4 mr-1" /> TAMBAH
+								</Button>
+							</div>
+							<p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-4">{menus.length} ITEM TERSEDIA</p>
+						</div>
+
+						<div className="flex">
+							<Button
+								variant="outline"
+								onClick={() => setIsCategoryDrawerOpen(true)}
+								className="h-11 rounded-2xl border-slate-200 text-slate-500 font-bold text-[10px] uppercase tracking-widest shrink-0 mr-2"
+							>
+								<Folder className="w-4 h-4 mr-1.5 text-amber-500" /> Kelola Kategori
+							</Button>
+						</div>
+
+						<div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-5 px-5">
+							{['Semua', ...dbCategories].map(cat => (
+								<button
+									key={cat}
+									onClick={() => setActiveFilterCategory(cat)}
+									className={`shrink-0 px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border ${activeFilterCategory === cat ? 'bg-amber-500 border-amber-600 text-white shadow-lg shadow-amber-500/20' : 'bg-white border-slate-100 text-slate-400'}`}
+								>
+									{cat}
+								</button>
+							))}
+						</div>
+
+						<div className="grid grid-cols-1 gap-3">
+							{menus
+								.filter(m => activeFilterCategory === 'Semua' || m.category === activeFilterCategory)
+								.map(m => (
+									<Card key={m.id} className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm hover:border-amber-200 transition-colors">
+										<CardContent className="p-4 flex items-center justify-between">
+											<div className="flex items-center gap-3">
+												<div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center text-xl">🥡</div>
+												<div>
+													<p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{m.category || 'Lainnya'}</p>
+													<h4 className="font-bold text-slate-800">{m.food_name}</h4>
+													<p className="text-amber-600 font-black text-sm">{formatRupiah(m.price)}</p>
+												</div>
+											</div>
+											<div className="flex gap-1">
+												<button onClick={() => {
+													setEditingMenu(m);
+													setNewFoodName(m.food_name);
+													setNewFoodPrice(m.price.toString());
+													setMenuFormCategory(m.category || 'Lainnya');
+													setIsEditDrawerOpen(true);
+												}} className="p-2 text-slate-400 hover:text-amber-600"><Edit2 className="w-4 h-4" /></button>
+												<button onClick={async () => { if (window.confirm("Hapus?")) { await supabase.from('menus').delete().eq('id', m.id); fetchMenus(); } }} className="p-2 text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+											</div>
+										</CardContent>
+									</Card>
+								))}
+						</div>
+					</div>
+				)}
+
+				{view === 'tardut' && (
+					<OBTardutList
+						requests={filteredActiveTardut}
+						onUpdateStatus={(id, status) => updateTardutStatus({ requestId: id, status, obId: myObId || undefined })}
+						formatRupiah={formatRupiah}
+					/>
+				)}
+			</div>
+
+			<Drawer open={!!selectedObForDetail} onOpenChange={() => setSelectedObForDetail(null)}>
+				<DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6 pb-8">
+					<DrawerHeader>
+						<DrawerTitle className="text-2xl font-black">Detail Pesanan {selectedObForDetail}</DrawerTitle>
+						<DrawerDescription>Daftar makanan yang diproses oleh {selectedObForDetail}.</DrawerDescription>
+					</DrawerHeader>
+					<div className="space-y-3 py-4 max-h-[60vh] overflow-y-auto pr-2 scrollbar-hide">
+						{(activeOrders || []).filter(o => o.assigned_to_ob === selectedObForDetail).map(order => (
+							<div key={order.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center group">
+								<div>
+									<p className="text-[10px] font-black text-amber-600 uppercase tracking-tighter mb-1">{order.profiles?.name}</p>
+									<h4 className="font-bold text-slate-800 text-sm leading-tight">{order.food_name}</h4>
+									<p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-wider">{formatRupiah(order.price)} • {order.payment_status === 'paid' ? 'LUNAS' : 'BELUM BAYAR'}</p>
+								</div>
+								<div className="text-right">
+									<span className={`text-[8px] font-black px-2 py-1 rounded-lg border ${order.order_status === 'done' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
+										{order.order_status === 'done' ? 'SELESAI' : 'PROSES'}
+									</span>
+								</div>
+							</div>
+						))}
+					</div>
+				</DrawerContent>
+			</Drawer>
+
+			<Drawer open={isMenuDrawerOpen} onOpenChange={setIsMenuDrawerOpen}>
+				<DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6">
+					<DrawerHeader>
+						<DrawerTitle className="text-2xl font-black">Menu Baru 🥘</DrawerTitle>
+					</DrawerHeader>
+					<div className="space-y-4 py-4">
+						<div className="space-y-2">
+							<Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nama Makanan</Label>
+							<Input placeholder="Nama Makanan" value={newFoodName} onChange={e => setNewFoodName(e.target.value)} className="h-14 rounded-xl" />
+						</div>
+						<div className="space-y-2">
+							<Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Harga</Label>
+							<Input type="number" placeholder="Harga" value={newFoodPrice} onChange={e => setNewFoodPrice(e.target.value)} className="h-14 rounded-xl" />
+						</div>
+						<div className="space-y-2">
+							<Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Kategori</Label>
+							<select
+								value={menuFormCategory}
+								onChange={e => setMenuFormCategory(e.target.value)}
+								className="flex h-14 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all font-bold"
+							>
+								<option value="Lainnya">Lainnya</option>
+								{dbCategories.map(cat => (
+									<option key={cat} value={cat}>{cat}</option>
+								))}
+							</select>
+						</div>
+						<Button onClick={handleAddMenu} disabled={isBusy} className="w-full h-14 bg-slate-900 text-white font-black rounded-xl mt-6">SIMPAN ✅</Button>
+					</div>
+				</DrawerContent>
+			</Drawer>
+
+			<Drawer open={isEditDrawerOpen} onOpenChange={setIsEditDrawerOpen}>
+				<DrawerContent className="max-w-[430px] mx-auto rounded-t-[32px] px-6 pb-10">
+					<DrawerHeader>
+						<DrawerTitle className="text-2xl font-black">Edit Menu 📝</DrawerTitle>
+					</DrawerHeader>
+					<div className="space-y-4 py-4">
+						<div className="space-y-2">
+							<Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nama Makanan</Label>
+							<Input value={newFoodName} onChange={e => setNewFoodName(e.target.value)} className="h-14 rounded-xl" />
+						</div>
+						<div className="space-y-2">
+							<Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Harga</Label>
+							<Input type="number" value={newFoodPrice} onChange={e => setNewFoodPrice(e.target.value)} className="h-14 rounded-xl" />
+						</div>
+						<div className="space-y-2">
+							<Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Kategori</Label>
+							<select
+								value={menuFormCategory}
+								onChange={e => setMenuFormCategory(e.target.value)}
+								className="flex h-14 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all font-bold"
+							>
+								<option value="Lainnya">Lainnya</option>
+								{dbCategories.map(cat => (
+									<option key={cat} value={cat}>{cat}</option>
+								))}
+							</select>
+						</div>
+						<Button onClick={handleUpdateMenu} disabled={isBusy} className="w-full h-14 bg-amber-500 text-white font-black rounded-xl mt-6">UPDATE ✅</Button>
+					</div>
+				</DrawerContent>
+			</Drawer>
+
+			<CategoryManagerDrawer
+				open={isCategoryDrawerOpen}
+				onOpenChange={setIsCategoryDrawerOpen}
+				categories={dbCategories}
+				onAdd={handleAddCategory}
+				onDelete={handleDeleteCategory}
+				isBusy={isBusy}
+			/>
+		</div>
+	)
 }
