@@ -6,7 +6,6 @@ import { Label } from '@/components/ui/label';
 import { 
   Zap, 
   Trash2, 
-  Plus, 
   CheckCircle 
 } from 'lucide-react';
 import {

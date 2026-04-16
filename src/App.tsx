@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import React, { useEffect, useState, Component, ReactNode } from 'react'
+import { useEffect, useState, Component, ReactNode } from 'react'
 import { supabase } from './lib/supabase'
 import type { Session } from '@supabase/supabase-js'
 import { Toaster } from 'sonner'

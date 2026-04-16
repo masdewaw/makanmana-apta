@@ -31,7 +31,6 @@ const mopedIcon = L.divIcon({
 const TrackingMap: React.FC<TrackingMapProps> = ({ obName }) => {
   const [location, setLocation] = useState<{ lat: number, lng: number } | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-  const [isLive, setIsLive] = useState(false);
 
   useEffect(() => {
     const targetName = obName.replace('OB 1', 'Bahul').replace('OB 2', 'Masber');
@@ -46,7 +45,6 @@ const TrackingMap: React.FC<TrackingMapProps> = ({ obName }) => {
       if (data && data.last_lat) {
         setLocation({ lat: data.last_lat, lng: data.last_lng });
         setLastUpdated(data.last_updated_at);
-        setIsLive(true);
       }
     };
 
@@ -64,7 +62,6 @@ const TrackingMap: React.FC<TrackingMapProps> = ({ obName }) => {
         if (name?.includes(searchTarget)) {
           setLocation({ lat: payload.new.last_lat, lng: payload.new.last_lng });
           setLastUpdated(payload.new.last_updated_at);
-          setIsLive(true);
         }
       })
       .subscribe();
