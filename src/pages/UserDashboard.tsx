@@ -58,6 +58,8 @@ export default function UserDashboard({ session }: { session: Session }) {
 	const [cart, setCart] = useState<CartItem[]>([])
 	const [allProfiles, setAllProfiles] = useState<{ id: string, name: string }[]>([])
 	const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+	const [historyPage, setHistoryPage] = useState(1)
+	const itemsPerPage = 10
 	
 	// Feature State
 	const [activeTmGroup, setActiveTmGroup] = useState<TemanMakanGroup | null>(null)
@@ -77,7 +79,21 @@ export default function UserDashboard({ session }: { session: Session }) {
 
 	// Hook usage
 	const userId = session.user.id
-	const { activeOrders, historyOrders, createOrder, isCreating: isPlacingOrder } = useOrders({ role: 'user', userId })
+	
+	// Active Orders (polled)
+	const { activeOrders, createOrder, isCreating: isPlacingOrder } = useOrders({ 
+		role: 'user', 
+		userId 
+	})
+
+	// Paginated History Orders
+	const { historyOrders, totalCount: totalHistory } = useOrders({
+		role: 'user',
+		userId,
+		status: 'done',
+		limit: itemsPerPage,
+		offset: (historyPage - 1) * itemsPerPage
+	})
 	const { requests: tardutRequests, submitTardut, isSubmitting: isSubmittingTardut } = useTardut({ userId })
 	const { rooms: tmGroups } = useTemanMakan()
 	const { bills: splitBills, finishBill } = useSplitBill()
@@ -453,6 +469,24 @@ export default function UserDashboard({ session }: { session: Session }) {
 								{historyOrders.map(order => (
 									<OrderCard key={order.id} order={order} role="user" formatRupiah={formatRupiah} />
 								))}
+
+								<div className="pt-4 flex items-center justify-between px-2">
+									<Button
+										disabled={historyPage === 1}
+										onClick={() => setHistoryPage(p => p - 1)}
+										className="h-10 px-4 bg-white text-slate-900 border border-slate-200 font-bold text-[10px]"
+									>
+										SEBELUMNYA
+									</Button>
+									<span className="text-[10px] font-black text-slate-400">HALAMAN {historyPage} / {Math.ceil(totalHistory / itemsPerPage) || 1}</span>
+									<Button
+										disabled={historyPage >= Math.ceil(totalHistory / itemsPerPage)}
+										onClick={() => setHistoryPage(p => p + 1)}
+										className="h-10 px-4 bg-white text-slate-900 border border-slate-200 font-bold text-[10px]"
+									>
+										BERIKUTNYA
+									</Button>
+								</div>
 							</div>
 						)}
 					</div>

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../ui/drawer';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -41,6 +41,16 @@ export function CartDrawer({
   const [catatan, setCatatan] = useState('');
   const [proofFile, setProofFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset local state when cart is cleared or drawer is closed
+  useEffect(() => {
+    if (cart.length === 0 || !open) {
+      setCatatan('');
+      setProofFile(null);
+      setPaymentMethod('cash');
+      setTransferTo('Bahul');
+    }
+  }, [cart.length, open]);
 
   const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 

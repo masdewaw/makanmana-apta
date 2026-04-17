@@ -9,15 +9,15 @@ export const orderService = {
     limit?: number;
     offset?: number;
   }) {
+    // 1. Run lazy cleanup of old orders (older than 8 hours) first
+    await this.cleanupOldOrders();
+
     let query = supabase
       .from('orders')
       .select('*, profiles(name)', { count: 'exact' });
 
     if (options.role === 'user' && options.userId) {
       query = query.eq('user_id', options.userId);
-      // Filter history to last 7 days (1 week)
-      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      query = query.gt('created_at', oneWeekAgo);
     } else if (options.role === 'ob') {
       if (options.status) {
         query = query.eq('order_status', options.status);
@@ -27,8 +27,8 @@ export const orderService = {
       
       // Proactive cleanup of active orders only (not history)
       if (options.status !== 'done') {
-        const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
-        query = query.gt('created_at', fourHoursAgo);
+        const eightHoursAgo = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
+        query = query.gt('created_at', eightHoursAgo);
       }
     }
 
@@ -46,6 +46,21 @@ export const orderService = {
       data: data as Order[],
       count: count || 0
     };
+  },
+
+  async cleanupOldOrders() {
+    const eightHoursAgo = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
+    
+    // Select orders that are:
+    // 1. Not 'done'
+    // 2. Older than 8 hours
+    const { error } = await supabase
+      .from('orders')
+      .update({ order_status: 'done' })
+      .neq('order_status', 'done')
+      .lt('created_at', eightHoursAgo);
+
+    if (error) console.error('Error during lazy auto-completion:', error);
   },
 
   async createOrder(orderData: Partial<Order>) {
