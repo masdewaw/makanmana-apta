@@ -76,8 +76,8 @@ export const orderService = {
 
   async updateOrderStatus(orderId: string, status: string, obId?: string) {
     const updateData: any = { order_status: status };
-    if (obId) {
-      updateData.assigned_to_ob = obId;
+    if (obId !== undefined) {
+      updateData.assigned_to_ob = obId || null;
     }
 
     const { error } = await supabase
