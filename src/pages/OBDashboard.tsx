@@ -10,15 +10,17 @@ import {
 	Edit2,
 	Folder,
 	Plus,
+	Pencil,
+	Settings
 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '../components/ui/drawer'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../components/ui/drawer'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 
-
 import { Menu } from '../types'
+import { SettingsDrawer } from '../components/organisms/SettingsDrawer'
 import { useTardut } from '../hooks/useTardut'
 import { useOrders } from '../hooks/useOrders'
 import { OBTardutList } from '../components/organisms/OBTardutList'
@@ -91,10 +93,12 @@ export default function OBDashboard({ session }: { session: Session }) {
 	const [dbCategories, setDbCategories] = useState<string[]>([])
 	const [menuFormCategory, setMenuFormCategory] = useState('Lainnya')
 	const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false)
+	const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 	const [isBusy, setIsBusy] = useState(false)
 	const [selectedObForDetail, setSelectedObForDetail] = useState<string | null>(null)
 	const [myObId, setMyObId] = useState<string | null>(null)
 
+	const userId = session.user.id
 	const lastUpdateRef = useRef<number>(0)
 
 	useEffect(() => {
@@ -205,10 +209,9 @@ export default function OBDashboard({ session }: { session: Session }) {
 						<div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center text-white"><UtensilsCrossed className="w-6 h-6" /></div>
 						<div>
 							<h2 className="text-xl font-black text-slate-800 tracking-tight">MakanMana Admin</h2>
-							<p className="text-[10px] font-black text-amber-600 bg-amber-50 px-2 rounded-full border border-amber-200 uppercase">{myObId || 'ADMIN'}</p>
 						</div>
 					</div>
-					<button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition"><LogOut className="w-6 h-6" /></button>
+					<button onClick={() => setIsSettingsOpen(true)} className="text-slate-400 hover:text-slate-600 transition"><Settings className="w-6 h-6" /></button>
 				</div>
 
 				<div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100 mb-2">

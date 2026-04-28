@@ -8,11 +8,12 @@ import {
 	LogOut, 
 	ShoppingBag, 
 	Banknote, 
-	Star, 
+	Star,
 	CheckCircle, 
 	Search, 
 	Plus, 
-	Heart 
+	Heart,
+	Settings
 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../components/ui/drawer'
@@ -35,6 +36,7 @@ import { SplitBillRecapDrawer } from '../components/organisms/SplitBillRecapDraw
 import { OcrDrawer } from '../components/organisms/OcrDrawer'
 import { InspirationDrawer } from '../components/organisms/InspirationDrawer'
 import TrackingMap from '../components/molecules/TrackingMap'
+import { SettingsDrawer } from '../components/organisms/SettingsDrawer'
 
 import { Menu, TemanMakanGroup, SplitBill } from '../types'
 
@@ -73,6 +75,7 @@ export default function UserDashboard({ session }: { session: Session }) {
 	const [isManualDrawerOpen, setIsManualDrawerOpen] = useState(false)
 	const [manualFoodName, setManualFoodName] = useState('')
 	const [manualFoodPrice, setManualFoodPrice] = useState('')
+	const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 	
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const categories = ['Semua', '🌟 Favoritku', ...dbCategories]
@@ -238,8 +241,8 @@ export default function UserDashboard({ session }: { session: Session }) {
 							<h2 className="text-sm font-bold tracking-tight text-slate-800 flex items-center">Kantor Utama <ChevronRight className="h-3 w-3 ml-1 text-slate-400" /></h2>
 						</div>
 					</div>
-					<button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition p-1">
-						<LogOut className="h-6 w-6" />
+					<button onClick={() => setIsSettingsOpen(true)} className="text-slate-400 hover:text-slate-600 transition p-1">
+						<Settings className="h-6 w-6" />
 					</button>
 				</div>
 			</div>
@@ -648,6 +651,15 @@ export default function UserDashboard({ session }: { session: Session }) {
 					</DrawerFooter>
 				</DrawerContent>
 			</Drawer>
+
+			<SettingsDrawer 
+				open={isSettingsOpen} 
+				onOpenChange={setIsSettingsOpen}
+				userId={userId}
+				currentName={profileName}
+				onLogout={handleLogout}
+				onProfileUpdated={fetchProfile}
+			/>
 
 			<input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={e => {
 				const file = e.target.files?.[0]
