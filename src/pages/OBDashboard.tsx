@@ -4,18 +4,16 @@ import { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import {
 	CheckCircle,
-	LogOut,
 	Trash2,
 	UtensilsCrossed,
 	Edit2,
 	Folder,
 	Plus,
-	Pencil,
 	Settings
 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../components/ui/drawer'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '../components/ui/drawer'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 
@@ -567,6 +565,15 @@ export default function OBDashboard({ session }: { session: Session }) {
 				onAdd={handleAddCategory}
 				onDelete={handleDeleteCategory}
 				isBusy={isBusy}
+			/>
+
+			<SettingsDrawer 
+				open={isSettingsOpen} 
+				onOpenChange={setIsSettingsOpen}
+				userId={userId}
+				currentName={myObId || ''}
+				onLogout={handleLogout}
+				onProfileUpdated={fetchMyProfile}
 			/>
 		</div>
 	)

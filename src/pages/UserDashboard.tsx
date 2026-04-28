@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 import { 
 	MapPin, 
 	ChevronRight, 
-	LogOut, 
 	ShoppingBag, 
 	Banknote, 
 	Star,
