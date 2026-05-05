@@ -7,6 +7,7 @@ import { Toaster } from 'sonner'
 import AuthPage from './pages/AuthPage'
 import UserDashboard from './pages/UserDashboard'
 import OBDashboard from './pages/OBDashboard'
+import NotFound from './pages/NotFound'
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -140,6 +141,7 @@ function App() {
                   )
                 } 
               />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </ErrorBoundary>
         </div>

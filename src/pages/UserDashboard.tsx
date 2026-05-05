@@ -12,7 +12,8 @@ import {
 	Search, 
 	Plus, 
 	Heart,
-	Settings
+	Settings,
+	Trophy
 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../components/ui/drawer'
@@ -36,6 +37,7 @@ import { OcrDrawer } from '../components/organisms/OcrDrawer'
 import { InspirationDrawer } from '../components/organisms/InspirationDrawer'
 import TrackingMap from '../components/molecules/TrackingMap'
 import { SettingsDrawer } from '../components/organisms/SettingsDrawer'
+import { RankingDrawer } from '../components/organisms/RankingDrawer'
 
 import { Menu, TemanMakanGroup, SplitBill } from '../types'
 
@@ -75,6 +77,7 @@ export default function UserDashboard({ session }: { session: Session }) {
 	const [manualFoodName, setManualFoodName] = useState('')
 	const [manualFoodPrice, setManualFoodPrice] = useState('')
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+	const [isRankingOpen, setIsRankingOpen] = useState(false)
 	
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const categories = ['Semua', '🌟 Favoritku', ...dbCategories]
@@ -117,12 +120,36 @@ export default function UserDashboard({ session }: { session: Session }) {
 	}
 
 	const fetchMenus = async () => {
-		const { data } = await supabase.from('menus').select('*').order('food_name')
-		if (data) {
-			setMenus(data)
-			if (data.length > 0) {
-				const random = data[Math.floor(Math.random() * data.length)]
-				setRecommendation(random)
+		const { data: menuData } = await supabase.from('menus').select('*').order('food_name')
+		if (menuData) {
+			setMenus(menuData)
+			
+			// Personalized Recommendation Logic
+			const { data: orderHistory } = await supabase
+				.from('orders')
+				.select('food_name')
+				.eq('user_id', userId)
+				.order('created_at', { ascending: false })
+				.limit(50)
+
+			let recommendedMenu: Menu | undefined;
+
+			if (orderHistory && orderHistory.length > 0) {
+				const counts: Record<string, number> = {}
+				orderHistory.forEach(o => {
+					counts[o.food_name] = (counts[o.food_name] || 0) + 1
+				})
+				const sortedHistory = Object.entries(counts).sort((a, b) => b[1] - a[1])
+				const topFoodName = sortedHistory[0][0]
+				recommendedMenu = menuData.find(m => m.food_name === topFoodName)
+			}
+
+			if (!recommendedMenu && menuData.length > 0) {
+				recommendedMenu = menuData[Math.floor(Math.random() * menuData.length)]
+			}
+
+			if (recommendedMenu) {
+				setRecommendation(recommendedMenu)
 			}
 		}
 	}
@@ -307,26 +334,38 @@ export default function UserDashboard({ session }: { session: Session }) {
 									)}
 								</div>
 
-								<div className="grid grid-cols-1 gap-4">
+								<div className="grid grid-cols-2 gap-4">
 									<div
 										onClick={() => setIsTardutDrawerOpen(true)}
-										className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:border-amber-200 transition-all cursor-pointer group active:scale-95"
+										className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex items-center gap-3 hover:border-amber-200 transition-all cursor-pointer group active:scale-95"
 									>
-										<div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-2xl group-hover:bg-amber-500 group-hover:text-white transition-colors duration-300">
-											<Banknote className="w-6 h-6 text-amber-600 group-hover:text-white transition-colors" />
+										<div className="w-10 h-10 bg-amber-100 rounded-2xl flex items-center justify-center group-hover:bg-amber-500 group-hover:text-white transition-colors duration-300">
+											<Banknote className="w-5 h-5 text-amber-600 group-hover:text-white transition-colors" />
 										</div>
 										<div className="flex-1">
-											<h4 className="font-black text-slate-800 text-sm tracking-tight">Tardut (Tarik Duit) 🚀</h4>
-											<p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Nitip tarik tunai ke OB</p>
+											<h4 className="font-black text-slate-800 text-[11px] tracking-tight">Tardut 🚀</h4>
+											<p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Tarik Duit</p>
 										</div>
-										<ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-amber-500 transition-colors" />
+									</div>
+
+									<div
+										onClick={() => setIsRankingOpen(true)}
+										className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex items-center gap-3 hover:border-orange-200 transition-all cursor-pointer group active:scale-95"
+									>
+										<div className="w-10 h-10 bg-orange-100 rounded-2xl flex items-center justify-center group-hover:bg-orange-500 group-hover:text-white transition-colors duration-300">
+											<Trophy className="w-5 h-5 text-orange-600 group-hover:text-white transition-colors" />
+										</div>
+										<div className="flex-1">
+											<h4 className="font-black text-slate-800 text-[11px] tracking-tight">Ranking 🏆</h4>
+											<p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Terlaris</p>
+										</div>
 									</div>
 								</div>
 
 								{recommendation && (
 									<div className="animate-in fade-in slide-in-from-bottom-4 duration-700 delay-200">
 										<div className="flex items-center justify-between mb-3 px-1">
-											<h3 className="font-bold text-slate-800 text-lg">Pilihan Spesial! 🌟</h3>
+											<h3 className="font-bold text-slate-800 text-lg">Khusus Buat Kamu! ✨</h3>
 										</div>
 										<div 
 											onClick={() => toggleCart(recommendation)}
@@ -340,7 +379,7 @@ export default function UserDashboard({ session }: { session: Session }) {
 													<CheckCircle className="h-6 w-6" />
 												</div>
 											)}
-											<p className="text-amber-100 font-black text-[10px] mb-2 uppercase tracking-[0.2em] opacity-80">Chef's Special Recommendation</p>
+											<p className="text-amber-100 font-black text-[10px] mb-2 uppercase tracking-[0.2em] opacity-80">Berdasarkan seleramu</p>
 											<h2 className="text-2xl font-black drop-shadow-md leading-tight max-w-[80%] mb-4">{recommendation.food_name}</h2>
 											<div className="flex items-center justify-between mt-auto">
 												<div className="px-4 py-2 bg-white/20 backdrop-blur-md rounded-2xl border border-white/10 font-black text-lg">
@@ -658,6 +697,11 @@ export default function UserDashboard({ session }: { session: Session }) {
 				currentName={profileName}
 				onLogout={handleLogout}
 				onProfileUpdated={fetchProfile}
+			/>
+
+			<RankingDrawer 
+				open={isRankingOpen}
+				onOpenChange={setIsRankingOpen}
 			/>
 
 			<input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={e => {
