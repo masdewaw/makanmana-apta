@@ -2,9 +2,13 @@
 begin;
 select set_config('test.note_user',(select id::text from public.profiles where role='user' order by id limit 1),true);
 select set_config('test.note_ob',(select id::text from public.profiles where role='OB' and ob_code is not null order by id limit 1),true);
+select set_config('test.note_session',gen_random_uuid()::text,true);
+insert into auth.sessions(id,user_id,created_at,updated_at) values(current_setting('test.note_session')::uuid,current_setting('test.note_user')::uuid,now(),now());
+select set_config('test.note_ob_session',gen_random_uuid()::text,true);
+insert into auth.sessions(id,user_id,created_at,updated_at) values(current_setting('test.note_ob_session')::uuid,current_setting('test.note_ob')::uuid,now(),now());
 set local role authenticated;
 select set_config('request.jwt.claim.sub',current_setting('test.note_user'),true);
-select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.note_user'),'role','authenticated')::text,true);
+select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.note_user'),'role','authenticated','session_id',current_setting('test.note_session'))::text,true);
 do $$ declare ids uuid[]; begin
  with inserted as (
  insert into public.orders(user_id,food_name,price,payment_method,catatan) values
@@ -28,7 +32,7 @@ end $$;
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub',current_setting('test.note_ob'),true);
-select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.note_ob'),'role','authenticated')::text,true);
+select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.note_ob'),'role','authenticated','session_id',current_setting('test.note_ob_session'))::text,true);
 do $$ begin
  if (select count(*) from public.orders where id=any(string_to_array(current_setting('test.note_ids'),',')::uuid[]) and catatan in ('Sambal dipisah','Tanpa es'))<>3 then raise exception 'OB cannot read per-menu notes'; end if;
 end $$;

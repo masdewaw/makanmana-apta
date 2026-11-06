@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 export const profileService = {
   getObNames: () => supabase.from('profiles').select('name, ob_code').eq('role', 'OB'),
   getProfile: (id: string) => supabase.from('profiles').select('*').eq('id', id).single(),
-  getRole: (id: string) => supabase.from('profiles').select('role').eq('id', id).single(),
+  getRole: (_id: string) => supabase.rpc('account_access'),
   getNames: () => supabase.from('profiles').select('id, name').order('name'),
   createProfile: (id: string, name: string) => supabase.from('profiles').insert([{ id, name }]),
   updateName: (id: string, name: string) => supabase.from('profiles').update({ name }).eq('id', id).select('id').single(),

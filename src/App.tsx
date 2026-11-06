@@ -1,3 +1,5 @@
+import { AccountAccessContext } from './hooks/useAccountAccess'
+import { ForcePasswordChange } from './components/organisms/ForcePasswordChange'
 import { useOnline } from './hooks/useOnline'
 import { OnboardingProvider } from './components/organisms/OnboardingProvider'
 import { errorMessage, withTimeout } from './lib/errors'
@@ -62,6 +64,8 @@ function App() {
   const online = useOnline()
   const wasOnline = useRef(online)
   const [session, setSession] = useState<Session | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [mustChangePassword, setMustChangePassword] = useState(false)
   const [role, setRole] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [authError, setAuthError] = useState<string | null>(null)
@@ -81,6 +85,8 @@ function App() {
       }
       setSession(next)
       setRole(null)
+      setIsAdmin(false)
+      setMustChangePassword(false)
       setAuthError(null)
       setLoading(!!next)
     }
@@ -109,7 +115,7 @@ function App() {
     void withTimeout(profileService.getRole(session.user.id)).then(({ data, error }) => {
       if (error) throw error
       if (data?.role !== 'user' && data?.role !== 'OB') throw new Error('Profil belum tersedia. Coba lagi atau hubungi pengelola.')
-      if (active) { setRole(data.role); setAuthError(null) }
+      if (active) { setRole(data.role); setIsAdmin(data.is_admin === true); setMustChangePassword(data.must_change_password === true); setAuthError(null) }
     }).catch(error => { if (active) setAuthError(errorMessage(error)) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
@@ -139,7 +145,10 @@ function App() {
     )
   }
 
+  if (session && mustChangePassword) return <ForcePasswordChange />
+
   return (
+    <AccountAccessContext.Provider value={{ isAdmin }}>
     <Router>
       <div className="bg-slate-200 min-h-screen w-full flex justify-center selection:bg-emerald-200 selection:text-emerald-900">
         <div className="mobile-shell w-full max-w-[430px] bg-slate-50 min-h-screen shadow-2xl relative overflow-hidden flex flex-col">
@@ -178,6 +187,7 @@ function App() {
         </div>
       </div>
     </Router>
+    </AccountAccessContext.Provider>
   )
 }
 

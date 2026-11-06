@@ -22,8 +22,12 @@ do $$ begin
  if has_function_privilege('anon','public.complete_expired_orders()','EXECUTE') then raise exception 'Anonymous cleanup access remains'; end if;
  if (select public from storage.buckets where id='payment-proofs') then raise exception 'Proof bucket is public'; end if;
 end $$;
+select set_config('test.session_a',gen_random_uuid()::text,true);
+insert into auth.sessions(id,user_id,created_at,updated_at) values(current_setting('test.session_a')::uuid,current_setting('test.user_a')::uuid,now(),now());
+select set_config('test.session_ob',gen_random_uuid()::text,true);
+insert into auth.sessions(id,user_id,created_at,updated_at) values(current_setting('test.session_ob')::uuid,current_setting('test.ob')::uuid,now(),now());
 set local role authenticated;
-select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.user_a'),'role','authenticated')::text,true);
+select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.user_a'),'role','authenticated','session_id',current_setting('test.session_a'))::text,true);
 select set_config('request.jwt.claim.sub',current_setting('test.user_a'),true);
 do $$ declare changed integer; begin
  if (select count(*) from public.orders where id=current_setting('test.foreign_order')::uuid)<>0 then raise exception 'Foreign order visible'; end if;
@@ -55,7 +59,7 @@ do $$ declare before_count bigint; begin
 end $$;
 reset role;
 set local role authenticated;
-select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.ob'),'role','authenticated')::text,true);
+select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.ob'),'role','authenticated','session_id',current_setting('test.session_ob'))::text,true);
 select set_config('request.jwt.claim.sub',current_setting('test.ob'),true);
 do $$ declare changed integer; begin
  if not private.is_ob() then raise exception 'OB identity missing'; end if;

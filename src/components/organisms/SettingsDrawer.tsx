@@ -1,3 +1,5 @@
+import { AdminUserManagement } from './AdminUserManagement';
+import { useAccountAccess } from '../../hooks/useAccountAccess';
 import { usePwa, PwaInstallPanel } from './PwaProvider';
 import { useOnboarding } from './OnboardingProvider';
 import { requireData, errorMessage } from '@/lib/errors';
@@ -7,7 +9,7 @@ import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle, DrawerDe
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { User, KeyRound, LogOut, ChevronLeft, Save, BookOpen, Download } from 'lucide-react';
+import { User, KeyRound, LogOut, ChevronLeft, Save, BookOpen, Download, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
 
@@ -28,10 +30,11 @@ export function SettingsDrawer({
   onLogout,
   onProfileUpdated
 }: SettingsDrawerProps) {
+  const { isAdmin } = useAccountAccess();
   const pwa = usePwa();
   const onboarding = useOnboarding();
   const replayAfterClose = useRef(false);
-  const [activeMenu, setActiveMenu] = useState<'main' | 'profile' | 'password' | 'install'>('main');
+  const [activeMenu, setActiveMenu] = useState<'main' | 'profile' | 'password' | 'install' | 'users'>('main');
   const [name, setName] = useState(currentName);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -86,7 +89,7 @@ export function SettingsDrawer({
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} onAnimationEnd={visible => {
+    <Drawer open={open} dismissible={!isLoading} onOpenChange={next => { if (!isLoading) onOpenChange(next); }} onAnimationEnd={visible => {
       if (!visible && replayAfterClose.current) { replayAfterClose.current = false; onboarding?.replay(); }
     }}>
       <DrawerContent data-pwa-busy={isLoading} className="max-w-[430px] mx-auto rounded-t-[28px] px-6 pb-12 border-0 shadow-2xl">
@@ -95,7 +98,7 @@ export function SettingsDrawer({
           <DrawerHeader className="px-0 flex items-center gap-3">
             {activeMenu !== 'main' && (
               <button 
-                onClick={() => setActiveMenu('main')}
+                disabled={isLoading} onClick={() => setActiveMenu('main')}
                 className="p-2 -ml-2 rounded-full hover:bg-slate-100 transition text-slate-500"
               >
                 <ChevronLeft className="w-5 h-5" />
@@ -103,11 +106,11 @@ export function SettingsDrawer({
             )}
             <div>
               <DrawerTitle className="text-2xl font-semibold text-slate-800">
-                {activeMenu === 'install' ? 'Aplikasi MakanMana' : activeMenu === 'main' ? 'Pengaturan ⚙️' :
+                {activeMenu === 'users' ? 'Kelola pengguna' : activeMenu === 'install' ? 'Aplikasi MakanMana' : activeMenu === 'main' ? 'Pengaturan ⚙️' :
                  activeMenu === 'profile' ? 'Edit Profil 👤' : 'Ganti Password 🔑'}
               </DrawerTitle>
               <DrawerDescription className="text-slate-500 font-medium">
-                {activeMenu === 'install' ? 'Akses MakanMana dari layar utama.' : activeMenu === 'main' ? 'Kelola akun dan pengaturanmu.' :
+                {activeMenu === 'users' ? 'Bantu pengguna memulihkan akses akun.' : activeMenu === 'install' ? 'Akses MakanMana dari layar utama.' : activeMenu === 'main' ? 'Kelola akun dan pengaturanmu.' :
                  activeMenu === 'profile' ? 'Ubah nama tampilanmu di aplikasi.' : 'Perbarui kata sandi untuk keamanan.'}
               </DrawerDescription>
             </div>
@@ -142,6 +145,8 @@ export function SettingsDrawer({
                   </div>
                 </button>
 
+                {isAdmin && <button onClick={() => setActiveMenu('users')} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-100 text-left"><div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-700"><Users className="w-5 h-5" /></div><div><h4 className="font-semibold text-slate-800 text-sm">Kelola pengguna</h4><p className="text-xs text-slate-500">Lihat akun dan reset password</p></div></button>}
+
                 {pwa && <button onClick={() => setActiveMenu('install')} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-100 text-left"><div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-700"><Download className="w-5 h-5" /></div><div><h4 className="font-semibold text-slate-800 text-sm">{pwa.installed ? 'Aplikasi MakanMana' : 'Pasang MakanMana'}</h4><p className="text-xs text-slate-500">Akses langsung dari layar utama</p></div></button>}
 
                 {onboarding && <DrawerClose asChild><button
@@ -166,6 +171,8 @@ export function SettingsDrawer({
                 </button>
               </div>
             )}
+
+            {activeMenu === 'users' && isAdmin && <AdminUserManagement currentUserId={userId} onBusyChange={setIsLoading} />}
 
             {activeMenu === 'install' && <PwaInstallPanel />}
 

@@ -1,3 +1,4 @@
+import { AdminUserManagement } from '../src/components/organisms/AdminUserManagement'
 import { OnboardingProvider, useTourNavigation } from '../src/components/organisms/OnboardingProvider'
 import { SettingsDrawer } from '../src/components/organisms/SettingsDrawer'
 import { OBWorkQueue } from '../src/components/organisms/OBWorkQueue'
@@ -29,6 +30,10 @@ function Preview() {
  const [category,setCategory]=useState('Semua'),[search,setSearch]=useState(''),[favorites,setFavorites]=useState<string[]>([]),[open,setOpen]=useState(false)
  const format=(n:number)=>new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(n)
  const change=(id:string,delta:number)=>setCart(items=>items.map(item=>item.id===id?{...item,quantity:item.quantity+delta}:item).filter(item=>item.quantity>0))
+ if(new URLSearchParams(location.search).get('screen')==='admin-users') {
+ const users=[{id:'preview-owner',name:'Dewa',phone:'085172459708',role:'user',is_admin:true,must_change_password:false},{id:'preview-colleague',name:'Teman Kantor',phone:'081234567890',role:'user',is_admin:false,must_change_password:false},{id:'preview-ob',name:'Teman OB',phone:'081234567891',role:'OB',is_admin:false,must_change_password:true}]
+ return <div className="mobile-shell max-w-[430px] mx-auto min-h-screen p-6 bg-white"><BrandLogo/><h1 className="text-2xl font-bold mt-8 mb-2">Kelola pengguna</h1><p className="text-sm text-slate-500 mb-6">Bantu pengguna memulihkan akses akun.</p><AdminUserManagement currentUserId="preview-owner" service={{list:async(search)=>({users:users.filter(user=>`${user.name} ${user.phone}`.toLowerCase().includes(search.toLowerCase())),total:users.filter(user=>`${user.name} ${user.phone}`.toLowerCase().includes(search.toLowerCase())).length}),reset:async()=>{toast('Preview saja. Tidak ada password akun nyata yang diubah.');return {ok:true}}}}/><Toaster/></div>
+ }
  if(new URLSearchParams(location.search).get('screen')==='ob') {
  const orders = [
  { id:'preview-1',user_id:'demo',profiles:{name:'Dewa'},food_name:'Nasi Ayam Sambal Matah',price:22000,payment_method:'transfer' as const,payment_status:'pending' as const,order_status:'waiting' as const,proof_url:null,catatan:'Sambal dipisah ya, nasi setengah saja.',created_at:new Date().toISOString(),transfer_to:'Bahul' },
