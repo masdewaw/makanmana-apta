@@ -1,25 +1,29 @@
+import type { OrderStatus, PaymentStatus } from '../types';
+import { useTableSync } from './useTableSync';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { orderService } from '../api/orders';
 import { toast } from 'sonner';
-import { useEffect } from 'react';
-import { supabase } from '../lib/supabase';
 
 interface UseOrdersOptions {
   userId?: string;
   role: 'user' | 'ob';
-  status?: string;
+  status?: OrderStatus;
+  paymentOb?: string;
+  enabled?: boolean;
   limit?: number;
   offset?: number;
 }
 
 export function useOrders(options: UseOrdersOptions) {
   const queryClient = useQueryClient();
+  useTableSync('orders', 'orders');
 
 // Fetch orders
-  const { data: ordersData, isLoading } = useQuery({
-    queryKey: ['orders', options.role, options.userId, options.status, options.limit, options.offset],
+  const { data: ordersData, isLoading, error, refetch } = useQuery({
+    queryKey: ['orders', options.role, options.userId, options.status, options.limit, options.offset, options.paymentOb],
     queryFn: () => orderService.getOrders(options),
-    refetchInterval: 5000, // Faster poll for OB
+    enabled: options.enabled ?? true,
+    refetchInterval: 30000, // Fallback if Realtime is unavailable
   });
 
   const orders = ordersData?.data || [];
@@ -28,25 +32,6 @@ export function useOrders(options: UseOrdersOptions) {
   // Split into active and history
   const activeOrders = options.status === 'done' ? [] : orders.filter(o => o.order_status !== 'done');
   const historyOrders = options.status === 'done' ? orders : orders.filter(o => o.order_status === 'done');
-
-  // Real-time synchronization
-  useEffect(() => {
-    const channelName = `orders_${Math.random().toString(36).slice(2, 11)}`;
-    const channel = supabase
-      .channel(channelName)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'orders'
-      }, () => {
-        queryClient.invalidateQueries({ queryKey: ['orders'] });
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [options.role, options.userId, queryClient]);
 
   // Mutations
   const createOrderMutation = useMutation({
@@ -60,7 +45,7 @@ export function useOrders(options: UseOrdersOptions) {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: ({ orderId, status, obId }: { orderId: string, status: string, obId?: string }) =>
+    mutationFn: ({ orderId, status, obId }: { orderId: string, status: OrderStatus, obId?: string }) =>
       orderService.updateOrderStatus(orderId, status, obId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
@@ -71,7 +56,7 @@ export function useOrders(options: UseOrdersOptions) {
   });
 
   const updatePaymentMutation = useMutation({
-    mutationFn: ({ orderId, status }: { orderId: string, status: string }) =>
+    mutationFn: ({ orderId, status }: { orderId: string, status: PaymentStatus }) =>
       orderService.updatePaymentStatus(orderId, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
@@ -88,10 +73,13 @@ export function useOrders(options: UseOrdersOptions) {
   const verifyPayment = (orderId: string) => updatePaymentMutation.mutate({ orderId, status: 'paid' });
 
   return {
+    orders,
     totalCount,
     activeOrders,
     historyOrders,
     isLoading,
+    error,
+    refetch,
     createOrder: createOrderMutation.mutateAsync,
     isCreating: createOrderMutation.isPending,
     updateStatus: updateStatusMutation.mutate,

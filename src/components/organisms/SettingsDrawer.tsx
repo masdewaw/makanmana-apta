@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../ui/drawer';
+import { usePwa, PwaInstallPanel } from './PwaProvider';
+import { useOnboarding } from './OnboardingProvider';
+import { requireData, errorMessage } from '@/lib/errors';
+import { profileService } from '@/api/profiles';
+import { useState, useEffect, useRef } from 'react';
+import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../ui/drawer';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { User, KeyRound, LogOut, ChevronLeft, Save } from 'lucide-react';
+import { User, KeyRound, LogOut, ChevronLeft, Save, BookOpen, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
 
@@ -24,7 +28,10 @@ export function SettingsDrawer({
   onLogout,
   onProfileUpdated
 }: SettingsDrawerProps) {
-  const [activeMenu, setActiveMenu] = useState<'main' | 'profile' | 'password'>('main');
+  const pwa = usePwa();
+  const onboarding = useOnboarding();
+  const replayAfterClose = useRef(false);
+  const [activeMenu, setActiveMenu] = useState<'main' | 'profile' | 'password' | 'install'>('main');
   const [name, setName] = useState(currentName);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -46,21 +53,15 @@ export function SettingsDrawer({
       return;
     }
     
+    if (isLoading) return;
     setIsLoading(true);
-    const { error } = await supabase
-      .from('profiles')
-      .update({ name: name.trim() })
-      .eq('id', userId);
-      
-    setIsLoading(false);
-    
-    if (error) {
-      toast.error("Gagal mengupdate profil: " + error.message);
-    } else {
+    try {
+      requireData(await profileService.updateName(userId, name.trim()));
       toast.success("Profil berhasil diupdate!");
       onProfileUpdated();
       setActiveMenu('main');
-    }
+    } catch (error) { toast.error(errorMessage(error)); }
+    finally { setIsLoading(false); }
   };
 
   const handleUpdatePassword = async () => {
@@ -73,24 +74,22 @@ export function SettingsDrawer({
       return;
     }
 
+    if (isLoading) return;
     setIsLoading(true);
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword
-    });
-    setIsLoading(false);
-
-    if (error) {
-      toast.error("Gagal mengganti password: " + error.message);
-    } else {
-      toast.success("Password berhasil diganti!");
-      setActiveMenu('main');
-    }
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      toast.success('Password berhasil diganti!');
+      setNewPassword(''); setConfirmPassword(''); setActiveMenu('main');
+    } catch (error) { toast.error(errorMessage(error)); }
+    finally { setIsLoading(false); }
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-12 border-0 shadow-2xl max-h-[96dvh]">
-        <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
+    <Drawer open={open} onOpenChange={onOpenChange} onAnimationEnd={visible => {
+      if (!visible && replayAfterClose.current) { replayAfterClose.current = false; onboarding?.replay(); }
+    }}>
+      <DrawerContent data-pwa-busy={isLoading} className="max-w-[430px] mx-auto rounded-t-[28px] px-6 pb-12 border-0 shadow-2xl">
         
         <div className="flex-1 overflow-y-auto pr-1 scrollbar-hide">
           <DrawerHeader className="px-0 flex items-center gap-3">
@@ -103,12 +102,12 @@ export function SettingsDrawer({
               </button>
             )}
             <div>
-              <DrawerTitle className="text-2xl font-black text-slate-800">
-                {activeMenu === 'main' ? 'Pengaturan ⚙️' : 
+              <DrawerTitle className="text-2xl font-semibold text-slate-800">
+                {activeMenu === 'install' ? 'Aplikasi MakanMana' : activeMenu === 'main' ? 'Pengaturan ⚙️' :
                  activeMenu === 'profile' ? 'Edit Profil 👤' : 'Ganti Password 🔑'}
               </DrawerTitle>
               <DrawerDescription className="text-slate-500 font-medium">
-                {activeMenu === 'main' ? 'Kelola akun dan pengaturanmu.' : 
+                {activeMenu === 'install' ? 'Akses MakanMana dari layar utama.' : activeMenu === 'main' ? 'Kelola akun dan pengaturanmu.' :
                  activeMenu === 'profile' ? 'Ubah nama tampilanmu di aplikasi.' : 'Perbarui kata sandi untuk keamanan.'}
               </DrawerDescription>
             </div>
@@ -119,29 +118,39 @@ export function SettingsDrawer({
               <div className="space-y-3">
                 <button
                   onClick={() => setActiveMenu('profile')}
-                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-amber-200 hover:bg-amber-50/50 transition-all active:scale-95 text-left"
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-emerald-200 hover:bg-emerald-50/50 transition-all active:scale-95 text-left"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
                     <User className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-black text-slate-800 text-sm">Edit Profil</h4>
+                    <h4 className="font-semibold text-slate-800 text-sm">Edit Profil</h4>
                     <p className="text-xs text-slate-500 font-medium">Ubah nama pengguna</p>
                   </div>
                 </button>
 
                 <button
                   onClick={() => setActiveMenu('password')}
-                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-amber-200 hover:bg-amber-50/50 transition-all active:scale-95 text-left"
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-emerald-200 hover:bg-emerald-50/50 transition-all active:scale-95 text-left"
                 >
                   <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
                     <KeyRound className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-black text-slate-800 text-sm">Ganti Password</h4>
+                    <h4 className="font-semibold text-slate-800 text-sm">Ganti Password</h4>
                     <p className="text-xs text-slate-500 font-medium">Perbarui kata sandi akunmu</p>
                   </div>
                 </button>
+
+                {pwa && <button onClick={() => setActiveMenu('install')} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-100 text-left"><div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-700"><Download className="w-5 h-5" /></div><div><h4 className="font-semibold text-slate-800 text-sm">{pwa.installed ? 'Aplikasi MakanMana' : 'Pasang MakanMana'}</h4><p className="text-xs text-slate-500">Akses langsung dari layar utama</p></div></button>}
+
+                {onboarding && <DrawerClose asChild><button
+                  onClick={() => { replayAfterClose.current = true; }}
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-emerald-200 text-left"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-700"><BookOpen className="w-5 h-5" /></div>
+                  <div><h4 className="font-semibold text-slate-800 text-sm">Panduan penggunaan</h4><p className="text-xs text-slate-500 font-medium">Kenali tampilan dan fitur MakanMana</p></div>
+                </button></DrawerClose>}
 
                 <button
                   onClick={onLogout}
@@ -151,22 +160,24 @@ export function SettingsDrawer({
                     <LogOut className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-black text-red-600 text-sm">Keluar Akun</h4>
+                    <h4 className="font-semibold text-red-600 text-sm">Keluar Akun</h4>
                     <p className="text-xs text-red-400 font-medium">Akhiri sesi saat ini</p>
                   </div>
                 </button>
               </div>
             )}
 
+            {activeMenu === 'install' && <PwaInstallPanel />}
+
             {activeMenu === 'profile' && (
               <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nama Lengkap</Label>
+                  <Label className="text-[12px] font-semibold tracking-normal text-slate-400 ml-1">Nama Lengkap</Label>
                   <Input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Masukkan nama"
-                    className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-medium focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white transition-all shadow-xs"
+                    className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-medium focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500 focus-visible:bg-white transition-all shadow-xs"
                   />
                 </div>
                 
@@ -174,10 +185,10 @@ export function SettingsDrawer({
                   <Button
                     onClick={handleUpdateProfile}
                     disabled={isLoading || !name.trim()}
-                    className="w-full h-14 rounded-2xl bg-amber-500 text-white font-black hover:bg-amber-600 transition-colors"
+                    className="w-full h-14 rounded-2xl bg-emerald-500 text-white font-semibold hover:bg-emerald-600 transition-colors"
                   >
                     <Save className="w-4 h-4 mr-2" />
-                    {isLoading ? 'MENYIMPAN...' : 'SIMPAN PERUBAHAN'}
+                    {isLoading ? 'Menyimpan...' : 'Simpan perubahan'}
                   </Button>
                 </DrawerFooter>
               </div>
@@ -186,23 +197,23 @@ export function SettingsDrawer({
             {activeMenu === 'password' && (
               <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Password Baru</Label>
+                  <Label className="text-[12px] font-semibold tracking-normal text-slate-400 ml-1">Password Baru</Label>
                   <Input
                     type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Minimal 6 karakter"
-                    className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-medium focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white transition-all shadow-xs"
+                    className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-medium focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500 focus-visible:bg-white transition-all shadow-xs"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Konfirmasi Password Baru</Label>
+                  <Label className="text-[12px] font-semibold tracking-normal text-slate-400 ml-1">Konfirmasi Password Baru</Label>
                   <Input
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Ketik ulang password baru"
-                    className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-medium focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white transition-all shadow-xs"
+                    className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-medium focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500 focus-visible:bg-white transition-all shadow-xs"
                   />
                 </div>
                 
@@ -210,10 +221,10 @@ export function SettingsDrawer({
                   <Button
                     onClick={handleUpdatePassword}
                     disabled={isLoading || newPassword.length < 6 || confirmPassword.length < 6}
-                    className="w-full h-14 rounded-2xl bg-blue-600 text-white font-black hover:bg-blue-700 transition-colors"
+                    className="w-full h-14 rounded-2xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors"
                   >
                     <Save className="w-4 h-4 mr-2" />
-                    {isLoading ? 'MENGGANTI...' : 'GANTI PASSWORD'}
+                    {isLoading ? 'MENGGANTI...' : 'Ganti kata sandi'}
                   </Button>
                 </DrawerFooter>
               </div>

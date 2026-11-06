@@ -81,7 +81,7 @@ export const temanMakanService = {
     const { error } = await supabase
       .from('teman_makan_groups')
       .update({ status: 'finished' })
-      .eq('id', groupId);
+      .eq('id', groupId).select('id').single();
 
     if (error) throw error;
   }

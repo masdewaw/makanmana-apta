@@ -1,22 +1,25 @@
+import { useTableSync } from './useTableSync';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { temanMakanService } from '@/api/temanMakan';
-import { useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
 export const useTemanMakan = (groupId?: string) => {
   const queryClient = useQueryClient();
+  useTableSync('teman_makan_groups', 'tmRooms');
+  useTableSync('teman_makan_orders', 'tmOrders');
 
   // 1. Fetch all rooms
   const roomsQuery = useQuery({
     queryKey: ['tmRooms'],
     queryFn: () => temanMakanService.getRooms(),
+    refetchInterval: 30000,
   });
 
   // 2. Fetch orders for a specific room (if groupId is provided)
   const roomOrdersQuery = useQuery({
     queryKey: ['tmOrders', groupId],
     queryFn: () => (groupId ? temanMakanService.getRoomOrders(groupId) : Promise.resolve([])),
+    refetchInterval: 30000,
     enabled: !!groupId,
   });
 
@@ -61,44 +64,9 @@ export const useTemanMakan = (groupId?: string) => {
     onError: (error: any) => toast.error("Gagal menutup room: " + error.message),
   });
 
-  // Real-time synchronization for Rooms
-  useEffect(() => {
-    const channelName = `tm_groups_${Math.random().toString(36).slice(2, 11)}`;
-    const channel = supabase
-      .channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'teman_makan_groups' }, () => {
-        queryClient.invalidateQueries({ queryKey: ['tmRooms'] });
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [queryClient]);
-
-  // Real-time synchronization for Orders within a room
-  useEffect(() => {
-    if (!groupId) return;
-
-    const channel = supabase
-      .channel(`tm_orders_${groupId}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'teman_makan_orders',
-        filter: `group_id=eq.${groupId}`
-      }, () => {
-        queryClient.invalidateQueries({ queryKey: ['tmOrders', groupId] });
-        toast.success("Ada update pesanan di grup! 🎉");
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [groupId, queryClient]);
-
   return {
+    error: roomsQuery.error || roomOrdersQuery.error,
+    refetch: () => Promise.all([roomsQuery.refetch(), ...(groupId ? [roomOrdersQuery.refetch()] : [])]),
     rooms: roomsQuery.data || [],
     isLoadingRooms: roomsQuery.isLoading,
     roomOrders: roomOrdersQuery.data || [],

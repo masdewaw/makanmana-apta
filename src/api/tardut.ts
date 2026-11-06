@@ -1,5 +1,6 @@
+import { paymentProofService } from './paymentProofs';
 import { supabase } from '../lib/supabase';
-import { TardutRequest } from '../types';
+import { TardutRequest, TardutStatus } from '../types';
 
 export const tardutService = {
   async submitRequest(userId: string, amount: number, proofFile: File) {
@@ -8,15 +9,11 @@ export const tardutService = {
     const fileName = `tardut-${Math.random()}.${fileExt}`;
     const filePath = `${userId}/${fileName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('payment-proofs')
-      .upload(filePath, proofFile);
+    const { error: uploadError } = await paymentProofService.upload(filePath, proofFile);
 
     if (uploadError) throw uploadError;
 
-    const { data: { publicUrl } } = supabase.storage
-      .from('payment-proofs')
-      .getPublicUrl(filePath);
+    const publicUrl = filePath;
 
     // 2. Insert request
     const { error: insertError } = await supabase
@@ -33,7 +30,7 @@ export const tardutService = {
     return { publicUrl };
   },
 
-  async getRequests(options?: { userId?: string, limit?: number, offset?: number, status?: string }) {
+  async getRequests(options?: { userId?: string, limit?: number, offset?: number, status?: TardutStatus }) {
     let query = supabase
       .from('tardut_requests')
       .select('*, profiles(name)', { count: 'exact' });
@@ -62,8 +59,8 @@ export const tardutService = {
     };
   },
 
-  async updateStatus(requestId: string, status: string, obId?: string) {
-    const updateData: any = { status };
+  async updateStatus(requestId: string, status: TardutStatus, obId?: string) {
+    const updateData: { status: TardutStatus; assigned_to_ob?: string } = { status };
     if (obId) {
       updateData.assigned_to_ob = obId;
     }
@@ -71,7 +68,7 @@ export const tardutService = {
     const { error } = await supabase
       .from('tardut_requests')
       .update(updateData)
-      .eq('id', requestId);
+      .eq('id', requestId).select('id').single();
 
     if (error) throw error;
   }

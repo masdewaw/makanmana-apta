@@ -1,0 +1,933 @@
+{
+  "checked_on": "2026-11-06",
+  "project": "MakanMana-App",
+  "columns": [
+    {
+      "table_name": "categories",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "gen_random_uuid()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "categories",
+      "column_name": "name",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "categories",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "now()",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "favorites",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "gen_random_uuid()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "favorites",
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "favorites",
+      "column_name": "menu_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "favorites",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "timezone('utc'::text, now())",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "menus",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "gen_random_uuid()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "menus",
+      "column_name": "food_name",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "menus",
+      "column_name": "price",
+      "data_type": "integer",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "menus",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "timezone('utc'::text, now())",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "menus",
+      "column_name": "category",
+      "data_type": "text",
+      "column_default": "'Lainnya'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "gen_random_uuid()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "food_name",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "price",
+      "data_type": "integer",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "payment_method",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "payment_status",
+      "data_type": "text",
+      "column_default": "'pending'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "order_status",
+      "data_type": "text",
+      "column_default": "'waiting'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "proof_url",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "assigned_to_ob",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "timezone('utc'::text, now())",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "catatan",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "transfer_to",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "profiles",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "profiles",
+      "column_name": "name",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "profiles",
+      "column_name": "role",
+      "data_type": "text",
+      "column_default": "'user'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "profiles",
+      "column_name": "last_lat",
+      "data_type": "double precision",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "profiles",
+      "column_name": "last_lng",
+      "data_type": "double precision",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "profiles",
+      "column_name": "last_updated_at",
+      "data_type": "timestamp with time zone",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bill_items",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "uuid_generate_v4()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "split_bill_items",
+      "column_name": "split_bill_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bill_items",
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bill_items",
+      "column_name": "item_name",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "split_bill_items",
+      "column_name": "price",
+      "data_type": "numeric",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "split_bill_items",
+      "column_name": "item_type",
+      "data_type": "text",
+      "column_default": "'food'::text",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "uuid_generate_v4()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "creator_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "merchant_name",
+      "data_type": "text",
+      "column_default": "''::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "total_final",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "discount",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "fees",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "delivery_fee",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "bank_info",
+      "data_type": "text",
+      "column_default": "''::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "status",
+      "data_type": "text",
+      "column_default": "'pending'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "now()",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "split_bills",
+      "column_name": "title",
+      "data_type": "text",
+      "column_default": "''::text",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "tardut_requests",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "gen_random_uuid()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "tardut_requests",
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "tardut_requests",
+      "column_name": "amount",
+      "data_type": "numeric",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "tardut_requests",
+      "column_name": "proof_url",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "tardut_requests",
+      "column_name": "status",
+      "data_type": "text",
+      "column_default": "'waiting'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "tardut_requests",
+      "column_name": "assigned_to_ob",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "tardut_requests",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "now()",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "tardut_requests",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "now()",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "teman_makan_groups",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "uuid_generate_v4()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "teman_makan_groups",
+      "column_name": "creator_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "teman_makan_groups",
+      "column_name": "title",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "teman_makan_groups",
+      "column_name": "description",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "teman_makan_groups",
+      "column_name": "bank_info",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "teman_makan_groups",
+      "column_name": "status",
+      "data_type": "text",
+      "column_default": "'open'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "teman_makan_groups",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "now()",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "teman_makan_groups",
+      "column_name": "deadline",
+      "data_type": "timestamp with time zone",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "teman_makan_orders",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "uuid_generate_v4()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "teman_makan_orders",
+      "column_name": "group_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "teman_makan_orders",
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "teman_makan_orders",
+      "column_name": "menu_name",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "teman_makan_orders",
+      "column_name": "price",
+      "data_type": "numeric",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "teman_makan_orders",
+      "column_name": "notes",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "teman_makan_orders",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "now()",
+      "is_nullable": "YES"
+    }
+  ],
+  "policies": [
+    {
+      "schemaname": "public",
+      "tablename": "profiles",
+      "policyname": "Allow all",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "true",
+      "with_check": "true"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "favorites",
+      "policyname": "Users can delete their own favorites",
+      "roles": [
+        "public"
+      ],
+      "cmd": "DELETE",
+      "qual": "(user_id = auth.uid())",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "favorites",
+      "policyname": "Users can insert their own favorites",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(user_id = auth.uid())"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "favorites",
+      "policyname": "Users can select their own favorites",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "(user_id = auth.uid())",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bills",
+      "policyname": "Anyone authenticated can view split bills",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "(auth.role() = 'authenticated'::text)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bills",
+      "policyname": "Anyone authenticated can view split_bills",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bills",
+      "policyname": "Authenticated users can create split_bills",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(auth.uid() = creator_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bills",
+      "policyname": "Creator can delete own split_bills",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "(auth.uid() = creator_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bills",
+      "policyname": "Creator can update own split_bills",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(auth.uid() = creator_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bills",
+      "policyname": "Everyone can view split bills",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bills",
+      "policyname": "Users can create split bills",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(auth.uid() = creator_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bills",
+      "policyname": "Users can insert their own split bills",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(auth.uid() = creator_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bill_items",
+      "policyname": "Anyone authenticated can insert split bill items",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(auth.role() = 'authenticated'::text)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bill_items",
+      "policyname": "Anyone authenticated can view split bill items",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "(auth.role() = 'authenticated'::text)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bill_items",
+      "policyname": "Anyone authenticated can view split_bill_items",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bill_items",
+      "policyname": "Authenticated users can insert split_bill_items",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "true"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bill_items",
+      "policyname": "Authenticated users can update split_bill_items",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bill_items",
+      "policyname": "Everyone can view split bill items",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "split_bill_items",
+      "policyname": "Users can manage split bill items",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "Allow Authenticated Upload",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(bucket_id = 'payment-proofs'::text)"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "Allow Public Access",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "(bucket_id = 'payment-proofs'::text)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "tardut_requests",
+      "policyname": "OB update status",
+      "roles": [
+        "public"
+      ],
+      "cmd": "UPDATE",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "tardut_requests",
+      "policyname": "Staff/OB view all",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "tardut_requests",
+      "policyname": "Users create own",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(auth.uid() = user_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "tardut_requests",
+      "policyname": "Users view own",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "(auth.uid() = user_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "menus",
+      "policyname": "Allow all",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "true",
+      "with_check": "true"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "orders",
+      "policyname": "Allow all",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "true",
+      "with_check": "true"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "categories",
+      "policyname": "Enable delete for OB users",
+      "roles": [
+        "public"
+      ],
+      "cmd": "DELETE",
+      "qual": "(EXISTS ( SELECT 1\n   FROM profiles\n  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'OB'::text))))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "categories",
+      "policyname": "Enable insert for OB users",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(EXISTS ( SELECT 1\n   FROM profiles\n  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'OB'::text))))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "categories",
+      "policyname": "Enable read for all",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "categories",
+      "policyname": "Enable read for authenticated users",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "categories",
+      "policyname": "Enable update for OB users",
+      "roles": [
+        "public"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(EXISTS ( SELECT 1\n   FROM profiles\n  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'OB'::text))))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "teman_makan_groups",
+      "policyname": "Creators can update their own groups",
+      "roles": [
+        "public"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(auth.uid() = creator_id)",
+      "with_check": "(auth.uid() = creator_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "teman_makan_groups",
+      "policyname": "Everyone can view groups",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "teman_makan_groups",
+      "policyname": "Users can create groups",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(auth.uid() = creator_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "teman_makan_orders",
+      "policyname": "Everyone can view group orders",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "teman_makan_orders",
+      "policyname": "Users can delete their own orders or group creators can delete ",
+      "roles": [
+        "public"
+      ],
+      "cmd": "DELETE",
+      "qual": "((auth.uid() = user_id) OR (auth.uid() IN ( SELECT teman_makan_groups.creator_id\n   FROM teman_makan_groups\n  WHERE (teman_makan_groups.id = teman_makan_orders.group_id))))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "teman_makan_orders",
+      "policyname": "Users can join groups",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(auth.uid() = user_id)"
+    }
+  ],
+  "realtime": [
+    "profiles",
+    "orders",
+    "tardut_requests",
+    "split_bills",
+    "split_bill_items",
+    "teman_makan_groups",
+    "teman_makan_orders"
+  ],
+  "buckets": [
+    {
+      "id": "payment-proofs",
+      "public": true,
+      "file_size_limit": null,
+      "allowed_mime_types": null
+    }
+  ]
+}

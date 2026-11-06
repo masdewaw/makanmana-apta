@@ -41,14 +41,14 @@ export const SplitBillList: React.FC<SplitBillListProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="bg-linear-to-r from-pink-500 to-rose-500 rounded-[32px] p-6 text-white shadow-xl shadow-pink-500/20">
-        <h3 className="text-xl font-black mb-1">Split Bill 🤖</h3>
+      <div className="bg-linear-to-r from-pink-500 to-rose-500 rounded-[24px] p-6 text-white shadow-xl shadow-pink-500/20">
+        <h3 className="text-xl font-semibold mb-1">Split Bill 🤖</h3>
         <p className="text-white/80 text-xs font-medium mb-4 italic">Foto struk makan, biar AI yang hitung patungannya!</p>
 
         <div className="flex gap-2">
           <Button
             onClick={onScanClick}
-            className="flex-1 h-12 rounded-2xl bg-white text-pink-600 font-black text-sm shadow-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all border-0"
+            className="flex-1 h-12 rounded-2xl bg-white text-pink-600 font-semibold text-sm shadow-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all border-0"
           >
             <Camera className="w-4 h-4" /> SCAN STRUK
           </Button>
@@ -57,9 +57,9 @@ export const SplitBillList: React.FC<SplitBillListProps> = ({
 
       <div className="space-y-4 pb-20">
         {/* Active Split Bills */}
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Patungan Yang Aktif:</h4>
+        <h4 className="text-[12px] font-semibold text-slate-400 tracking-[0.2em] ml-1">Patungan Yang Aktif:</h4>
         {activeBills.length === 0 ? (
-          <div className="text-center py-8 bg-white rounded-[40px] border-2 border-dashed border-slate-200">
+          <div className="text-center py-8 bg-white rounded-[28px] border-2 border-dashed border-slate-200">
             <p className="text-slate-400 font-bold italic text-sm">Belum ada patungan aktif.</p>
           </div>
         ) : (
@@ -67,26 +67,26 @@ export const SplitBillList: React.FC<SplitBillListProps> = ({
             {activeBills.map(bill => (
               <div
                 key={bill.id}
-                className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-xs text-left group hover:border-pink-200 transition-all"
+                className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-xs text-left group hover:border-pink-200 transition-all"
               >
                 <div className="flex justify-between items-start mb-3">
                   <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-1">Dibuat oleh {bill.profiles?.name?.split(' ')[0] || 'User'}</p>
-                    <h5 className="font-black text-slate-800 text-base leading-tight">{bill.title}</h5>
+                    <p className="text-[12px] font-semibold text-slate-400 tracking-normal mb-1">Dibuat oleh {bill.profiles?.name?.split(' ')[0] || 'User'}</p>
+                    <h5 className="font-semibold text-slate-800 text-base leading-tight">{bill.title}</h5>
                   </div>
-                  <div className="bg-pink-50 text-pink-600 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">
+                  <div className="bg-pink-50 text-pink-600 text-[12px] font-semibold px-3 py-1 rounded-full tracking-normal">
                     ACTIVE ⚡️
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-tight">
+                  <div className="flex items-center gap-2 text-[12px] text-slate-400 font-bold tracking-tight">
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {getRelativeTime(bill.created_at)}</span>
                     <span>•</span>
                     <button
                       onClick={() => onSelectBill(bill)}
-                      className="text-pink-500 font-black active:scale-95 cursor-pointer"
+                      className="text-pink-500 font-semibold active:scale-95 cursor-pointer"
                     >
-                      LIHAT REKAP →
+                      Lihat rekap →
                     </button>
                   </div>
                   {bill.creator_id === currentUserId && (
@@ -95,9 +95,9 @@ export const SplitBillList: React.FC<SplitBillListProps> = ({
                         e.stopPropagation();
                         onFinishBill(bill.id);
                       }}
-                      className="bg-slate-800 text-white px-3 py-1 rounded-xl text-[10px] font-black active:scale-95 transition-all"
+                      className="bg-slate-800 text-white px-3 py-1 rounded-xl text-[12px] font-semibold active:scale-95 transition-all"
                     >
-                      TUTUP ✅
+                      Tutup
                     </button>
                   )}
                 </div>
@@ -109,27 +109,27 @@ export const SplitBillList: React.FC<SplitBillListProps> = ({
         {/* Finished Split Bills */}
         {finishedBills.length > 0 && (
           <>
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1 mt-6">Riwayat Patungan:</h4>
+            <h4 className="text-[12px] font-semibold text-slate-400 tracking-[0.2em] ml-1 mt-6">Riwayat Patungan:</h4>
             <div className="grid grid-cols-1 gap-4">
               {finishedBills.map(bill => (
                 <button
                   key={bill.id}
                   onClick={() => onSelectBill(bill)}
-                  className="bg-white/60 p-5 rounded-[32px] border border-slate-100 shadow-xs text-left group active:scale-[0.98] transition-all opacity-70 hover:opacity-100"
+                  className="bg-white/60 p-5 rounded-[24px] border border-slate-100 shadow-xs text-left group active:scale-[0.98] transition-all opacity-70 hover:opacity-100"
                 >
                   <div className="flex justify-between items-start mb-3">
                     <div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-1">Dibuat oleh {bill.profiles?.name?.split(' ')[0] || 'User'}</p>
-                      <h5 className="font-black text-slate-800 text-base leading-tight">{bill.title}</h5>
+                      <p className="text-[12px] font-semibold text-slate-400 tracking-normal mb-1">Dibuat oleh {bill.profiles?.name?.split(' ')[0] || 'User'}</p>
+                      <h5 className="font-semibold text-slate-800 text-base leading-tight">{bill.title}</h5>
                     </div>
-                    <div className="bg-slate-100 text-slate-500 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">
+                    <div className="bg-slate-100 text-slate-500 text-[12px] font-semibold px-3 py-1 rounded-full tracking-normal">
                       SELESAI 🔒
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-tight">
+                  <div className="flex items-center gap-2 text-[12px] text-slate-400 font-bold tracking-tight">
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {getRelativeTime(bill.created_at)}</span>
                     <span>•</span>
-                    <span className="text-slate-500">LIHAT REKAP →</span>
+                    <span className="text-slate-500">Lihat rekap →</span>
                   </div>
                 </button>
               ))}

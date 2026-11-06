@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { errorMessage } from '@/lib/errors';
+import { isValidRupiah, validateImage } from '@/lib/form-validation';
+import React, { useState, useEffect, useRef } from 'react';
 import Tesseract from 'tesseract.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,13 +33,13 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
   open,
   onOpenChange,
   file,
-  currentUserId,
   allProfiles,
   formatRupiah
 }) => {
-  const { createBill, saveItems, isCreatingBill } = useSplitBill();
+  const { createBillWithItems, isSavingBill } = useSplitBill();
   
   const [loading, setLoading] = useState(false);
+  const saving = useRef(false);
   const [step, setStep] = useState<'edit' | 'assign' | 'payment' | 'summary'>('edit');
   const [items, setItems] = useState<{ name: string, price: number, itemType: 'food' | 'shared' }[]>([]);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -61,6 +63,8 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
   }, [open, file]);
 
   const processFile = async (selectedFile: File) => {
+    const error = validateImage(selectedFile);
+    if (error) return toast.error(error);
     setLoading(true);
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -128,38 +132,36 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
     reader.readAsDataURL(selectedFile);
   };
 
-  const handleSaveBill = () => {
-    if (!billTitle.trim()) return toast.error("Judul patungan harus diisi!");
-    
-    createBill({
-      creatorId: currentUserId,
-      title: billTitle.trim(),
-      bankInfo: paymentInfo.trim(),
-    }, {
-      onSuccess: (newBill) => {
-        const finalItems = items.map((item, idx) => ({
-          itemName: item.name,
-          price: item.price,
-          itemType: item.itemType,
-          userId: item.itemType === 'food' ? assignments[idx] : null
-        }));
+  const validateItems = () => {
+    if (!items.length || items.some(item => !item.name.trim() || !isValidRupiah(item.price, item.itemType === 'shared'))) {
+      toast.error('Isi nama dan harga rupiah bulat untuk setiap item. Harga makanan harus lebih dari 0.');
+      setStep('edit');
+      return false;
+    }
+    return true;
+  };
 
-        saveItems({ billId: newBill.id, items: finalItems }, {
-          onSuccess: () => {
-            onOpenChange(false);
-            toast.success("Patungan berhasil disimpan! 🚀");
-          }
-        });
-      }
-    });
+  const handleSaveBill = async () => {
+    if (saving.current) return;
+    if (!billTitle.trim()) return toast.error('Judul patungan harus diisi!');
+    if (!validateItems()) return;
+    saving.current = true;
+    try {
+      await createBillWithItems({ title: billTitle.trim(), bankInfo: paymentInfo.trim(), items: items.map((item, index) => ({
+        itemName: item.name.trim(), price: item.price, itemType: item.itemType,
+        userId: item.itemType === 'food' ? assignments[index] : null,
+      })) });
+      onOpenChange(false);
+      toast.success('Patungan berhasil disimpan!');
+    } catch (error) { toast.error(errorMessage(error)); }
+    finally { saving.current = false; }
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-12 border-0 shadow-2xl max-h-[96dvh]">
-        <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
+    <Drawer open={open} dismissible={!isSavingBill} onOpenChange={next => { if (!saving.current) onOpenChange(next); }}>
+      <DrawerContent className="max-w-[430px] mx-auto rounded-t-[28px] px-6 pb-12 border-0 shadow-2xl">
         <DrawerHeader className="px-0">
-          <DrawerTitle className="text-2xl font-black text-slate-800">
+          <DrawerTitle className="text-2xl font-semibold text-slate-800">
             {step === 'edit' && "Edit Struk 🧾"}
             {step === 'assign' && "Siapa Makan Apa? 👥"}
             {step === 'payment' && "Info Pembayaran 💳"}
@@ -180,7 +182,7 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
                 <div className="w-16 h-16 border-4 border-pink-100 border-t-pink-500 rounded-full animate-spin" />
                 <Zap className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-pink-500 animate-pulse" />
               </div>
-              <p className="font-black text-slate-800 text-lg">AI lagi baca strukmu...</p>
+              <p className="font-semibold text-slate-800 text-lg">AI lagi baca strukmu...</p>
             </div>
           ) : (
             <>
@@ -193,7 +195,7 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
                   )}
                   <div className="space-y-3">
                     {items.map((item, idx) => (
-                      <div key={idx} className={`bg-white p-4 rounded-2xl border flex justify-between items-center group ${item.itemType === 'shared' ? 'border-amber-200 bg-amber-50/20' : 'border-slate-100'}`}>
+                      <div key={idx} className={`bg-white p-4 rounded-2xl border flex justify-between items-center group ${item.itemType === 'shared' ? 'border-emerald-200 bg-emerald-50/20' : 'border-slate-100'}`}>
                         <div className="flex-1 mr-4">
                           <input
                             value={item.name}
@@ -204,7 +206,7 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
                             }}
                             className="font-bold text-slate-800 text-sm w-full bg-transparent focus:outline-none"
                           />
-                          {item.itemType === 'shared' && <span className="text-[9px] font-black text-amber-600 uppercase tracking-widest bg-amber-100 px-2 py-0.5 rounded-full">Shared</span>}
+                          {item.itemType === 'shared' && <span className="text-[11px] font-semibold text-emerald-600 tracking-normal bg-emerald-100 px-2 py-0.5 rounded-full">Shared</span>}
                         </div>
                         <div className="flex items-center gap-2">
                            <input
@@ -215,7 +217,7 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
                               newItems[idx].price = parseInt(e.target.value) || 0;
                               setItems(newItems);
                             }}
-                            className={`font-black text-sm w-20 text-right focus:outline-none bg-transparent ${item.price < 0 ? 'text-emerald-600' : 'text-slate-800'}`}
+                            className={`font-semibold text-sm w-20 text-right focus:outline-none bg-transparent ${item.price < 0 ? 'text-emerald-600' : 'text-slate-800'}`}
                           />
                           <button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-slate-300 hover:text-red-500">
                             <Trash2 className="w-4 h-4" />
@@ -224,24 +226,24 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
                       </div>
                     ))}
                     <div className="flex gap-2">
-                      <Button variant="outline" className="flex-1 border-dashed text-[10px] h-10" onClick={() => setItems([...items, { name: 'Menu Baru', price: 0, itemType: 'food' }])}>
+                      <Button variant="outline" className="flex-1 border-dashed text-[12px] h-10" onClick={() => setItems([...items, { name: 'Menu Baru', price: 0, itemType: 'food' }])}>
                         + Makanan
                       </Button>
-                      <Button variant="outline" className="flex-1 border-dashed text-[10px] h-10 border-amber-200 text-amber-700" onClick={() => setItems([...items, { name: 'Biaya Baru', price: 0, itemType: 'shared' }])}>
+                      <Button variant="outline" className="flex-1 border-dashed text-[12px] h-10 border-emerald-200 text-emerald-700" onClick={() => setItems([...items, { name: 'Biaya Baru', price: 0, itemType: 'shared' }])}>
                         + Biaya Bersama
                       </Button>
                     </div>
                     <div className="pt-4 space-y-4">
                       <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Judul Patungan*</Label>
+                        <Label className="text-[12px] font-semibold tracking-normal text-slate-400">Judul Patungan*</Label>
                         <Input 
                           placeholder="Makan siang di..." 
                           value={billTitle} 
                           onChange={e => setBillTitle(e.target.value)} 
-                          className="rounded-2xl h-12 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white border-slate-200 transition-all shadow-xs"
+                          className="rounded-2xl h-12 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500 focus-visible:bg-white border-slate-200 transition-all shadow-xs"
                         />
                       </div>
-                      <Button className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black" onClick={() => setStep('assign')} disabled={!billTitle || items.length === 0}>
+                      <Button className="w-full h-14 bg-slate-900 text-white rounded-2xl font-semibold" onClick={() => { if (validateItems()) setStep('assign'); }} disabled={!billTitle || items.length === 0}>
                         LANJUT PILIH ORANG →
                       </Button>
                     </div>
@@ -251,34 +253,34 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
 
               {step === 'assign' && (
                 <div className="space-y-4">
-                  <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 mb-6">
-                    <h6 className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-2">💰 Biaya Bersama (Shared)</h6>
+                  <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 mb-6">
+                    <h6 className="text-[12px] font-semibold text-emerald-700 tracking-normal mb-2">💰 Biaya Bersama (Shared)</h6>
                     <div className="space-y-1">
                       {items.filter(i => i.itemType === 'shared').map((si, sidx) => (
-                        <div key={sidx} className="flex justify-between text-[10px] font-bold text-amber-800/60">
+                        <div key={sidx} className="flex justify-between text-[12px] font-bold text-emerald-800/60">
                           <span>{si.name}</span>
                           <span>{formatRupiah(si.price)}</span>
                         </div>
                       ))}
-                      <div className="pt-2 border-t border-amber-200 flex justify-between text-[10px] font-black text-amber-700">
+                      <div className="pt-2 border-t border-emerald-200 flex justify-between text-[12px] font-semibold text-emerald-700">
                         <span>TOTAL BERSAMA</span>
                         <span>{formatRupiah(items.filter(i => i.itemType === 'shared').reduce((acc, i) => acc + i.price, 0))}</span>
                       </div>
                     </div>
                   </div>
 
-                  <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Pilih porsi makan:</h6>
+                  <h6 className="text-[12px] font-semibold text-slate-400 tracking-normal ml-1">Pilih porsi makan:</h6>
                   {items.map((item, idx) => (
                     item.itemType === 'food' && (
                       <div key={idx} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
                         <div className="flex justify-between items-center mb-2">
-                           <h6 className="font-black text-slate-800 text-xs">{item.name}</h6>
-                           <span className="text-xs font-black text-slate-900">{formatRupiah(item.price)}</span>
+                           <h6 className="font-semibold text-slate-800 text-xs">{item.name}</h6>
+                           <span className="text-xs font-semibold text-slate-900">{formatRupiah(item.price)}</span>
                         </div>
                         <select
                           value={assignments[idx] || ""}
                           onChange={(e) => setAssignments({ ...assignments, [idx]: e.target.value })}
-                          className="w-full h-11 rounded-xl bg-slate-50 px-4 font-bold text-[11px] appearance-none border-none focus:ring-2 focus:ring-amber-500"
+                          className="w-full h-11 rounded-xl bg-slate-50 px-4 font-bold text-[11px] appearance-none border-none focus:ring-2 focus:ring-emerald-500"
                         >
                           <option value="" disabled>Pilih orang...</option>
                           {allProfiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -287,8 +289,8 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
                     )
                   ))}
                   <div className="flex gap-3 pt-6 pb-4">
-                    <Button variant="ghost" className="flex-1 font-bold" onClick={() => setStep('edit')}>KEMBALI</Button>
-                    <Button className="flex-2 bg-slate-900 text-white h-14 rounded-2xl font-black" onClick={() => setStep('payment')}>LANJUT →</Button>
+                    <Button variant="ghost" className="flex-1 font-bold" onClick={() => setStep('edit')}>Kembali</Button>
+                    <Button className="flex-2 bg-slate-900 text-white h-14 rounded-2xl font-semibold" onClick={() => setStep('payment')}>Lanjut →</Button>
                   </div>
                 </div>
               )}
@@ -296,16 +298,16 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
               {step === 'payment' && (
                 <div className="space-y-6">
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Info Transfer</Label>
+                    <Label className="text-[12px] font-semibold tracking-normal text-slate-400">Info Transfer</Label>
                     <Input 
                       placeholder="BCA 1234567890 a.n. Agus" 
                       value={paymentInfo} 
                       onChange={e => setPaymentInfo(e.target.value)} 
-                      className="rounded-2xl h-12 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white border-slate-200 transition-all shadow-xs"
+                      className="rounded-2xl h-12 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500 focus-visible:bg-white border-slate-200 transition-all shadow-xs"
                     />
                   </div>
                   <div className="flex gap-3">
-                    <Button variant="ghost" className="flex-1" onClick={() => setStep('assign')}>KEMBALI</Button>
+                    <Button variant="ghost" className="flex-1" onClick={() => { if (validateItems()) setStep('assign'); }}>Kembali</Button>
                     <Button className="flex-2 bg-slate-900 text-white h-14 rounded-2xl" onClick={() => setStep('summary')}>RECAP →</Button>
                   </div>
                 </div>
@@ -318,7 +320,7 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
                       <div className="w-8 h-8 bg-emerald-100 rounded-xl flex items-center justify-center">
                         <CheckCircle className="text-emerald-500 w-5 h-5" />
                       </div>
-                      <p className="text-xs font-black text-emerald-700">Estimasi Patungan:</p>
+                      <p className="text-xs font-semibold text-emerald-700">Estimasi Patungan:</p>
                     </div>
                     
                     <div className="space-y-3">
@@ -335,8 +337,8 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
                             <div key={p.id} className="flex justify-between items-center text-xs">
                               <span className="font-bold text-slate-600">{p.name}</span>
                               <div className="text-right">
-                                <span className="font-black text-emerald-600">{formatRupiah(userFoodTotal + perPersonShared)}</span>
-                                <p className="text-[8px] font-bold text-slate-400">({formatRupiah(userFoodTotal)} + {formatRupiah(perPersonShared)})</p>
+                                <span className="font-semibold text-emerald-600">{formatRupiah(userFoodTotal + perPersonShared)}</span>
+                                <p className="text-[11px] font-bold text-slate-400">({formatRupiah(userFoodTotal)} + {formatRupiah(perPersonShared)})</p>
                               </div>
                             </div>
                           );
@@ -345,13 +347,13 @@ export const OcrDrawer: React.FC<OcrDrawerProps> = ({
                   </div>
 
                   <div className="flex gap-3 pt-6 pb-4">
-                    <Button variant="ghost" className="flex-1 font-bold" onClick={() => setStep('payment')}>KEMBALI</Button>
+                    <Button variant="ghost" className="flex-1 font-bold" onClick={() => setStep('payment')}>Kembali</Button>
                     <Button 
-                      className="flex-2 bg-pink-500 text-white h-14 rounded-2xl font-black shadow-lg shadow-pink-200"
+                      className="flex-2 bg-pink-500 text-white h-14 rounded-2xl font-semibold shadow-lg shadow-pink-200"
                       onClick={handleSaveBill}
-                      disabled={isCreatingBill}
+                      disabled={isSavingBill}
                     >
-                      {isCreatingBill ? "MENYIMPAN..." : "SIMPAN BILL 🎉"}
+                      {isSavingBill ? "Menyimpan..." : "Simpan patungan"}
                     </Button>
                   </div>
                 </div>

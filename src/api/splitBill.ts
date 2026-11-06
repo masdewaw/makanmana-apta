@@ -2,6 +2,11 @@ import { supabase } from '@/lib/supabase';
 import { SplitBill, SplitBillItem } from '@/types';
 
 export const splitBillService = {
+  async createBillWithItems(params: { title: string; bankInfo: string; items: { itemName: string; price: number; itemType: 'food' | 'shared'; userId?: string | null }[] }) {
+    const { data, error } = await supabase.rpc('create_split_bill', { bill_title: params.title, payment_info: params.bankInfo, bill_items: params.items });
+    if (error) throw error;
+    return data as SplitBill;
+  },
   async getBills() {
     const { data, error } = await supabase
       .from('split_bills')
@@ -71,7 +76,7 @@ export const splitBillService = {
     const { error } = await supabase
       .from('split_bill_items')
       .update({ user_id: userId })
-      .eq('id', itemId);
+      .eq('id', itemId).select('id').single();
 
     if (error) throw error;
   },
@@ -80,7 +85,7 @@ export const splitBillService = {
     const { error } = await supabase
       .from('split_bills')
       .update({ status: 'finished' })
-      .eq('id', billId);
+      .eq('id', billId).select('id').single();
 
     if (error) throw error;
   }

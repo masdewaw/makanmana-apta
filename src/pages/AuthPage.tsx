@@ -1,12 +1,18 @@
+import { assertOnline } from '../lib/connectivity'
+import { useOnline } from '../hooks/useOnline'
+import { PwaInstallButton } from '../components/organisms/PwaProvider'
+import { BrandLogo } from '../components/molecules/BrandLogo'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { supabase } from '../lib/supabase'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
+import { FoodArt } from '../components/illustrations/FoodArt'
 import { Eye, EyeOff } from 'lucide-react'
 
 export default function AuthPage() {
+  const online = useOnline()
   const [isLogin, setIsLogin] = useState(true)
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
@@ -17,34 +23,33 @@ export default function AuthPage() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!phone.startsWith('08')) {
-      toast.error('Nomor handphone harus diawali dengan 08')
+    if (!/^08\d{8,12}$/.test(phone.trim())) {
+      toast.error('Nomor HP harus diawali 08 dan berisi 10 sampai 14 digit')
       return
     }
 
+    if (!isLogin && !fullName.trim()) return toast.error('Nama lengkap wajib diisi.')
+    if (!isLogin && password.length < 6) return toast.error('Password minimal 6 karakter.')
+
     // Virtual Email for Supabase Auth bypass
-    const email = `${phone}@makanmana.com`
+    const email = `${phone.trim()}@makanmana.com`
 
     setLoading(true)
 
     try {
+      assertOnline()
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw new Error("Akses ditolak. Nomor HP atau password salah.")
       } else {
         const { error: signUpError, data } = await supabase.auth.signUp({
           email,
-          password
+          password,
+          options: { data: { name: fullName.trim() } }
         })
         if (signUpError) throw new Error(signUpError.message)
 
         if (data.user) {
-          // Create profile
-          const { error: profileError } = await supabase.from('profiles').insert([
-            { id: data.user.id, name: fullName }
-          ])
-          if (profileError) throw profileError
-
           toast.success('Pendaftaran berhasil! Silakan masuk.')
           setIsLogin(true)
           setPassword('')
@@ -66,25 +71,20 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white">
-      {/* App Launch Header Graphic */}
-      <div className="bg-amber-500 rounded-b-[40px] pt-20 pb-12 px-6 shadow-md relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-4 opacity-10 transform translate-x-4 -translate-y-4">
-           <svg width="200" height="200" viewBox="0 0 24 24" fill="currentColor"><path d="M11 20A7 7 0 0 1 4 13v-3a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3a7 7 0 0 1-7 7Zm-4-8V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v8"/><path d="M12 2v3"/><path d="M8 5v2"/><path d="M16 5v2"/></svg>
-        </div>
-        <div className="relative z-10 flex flex-col items-center">
-          <div className="bg-white p-4 rounded-full shadow-xl mb-4">
-            <span className="text-4xl leading-none block">🍔</span>
-          </div>
-          <h1 className="text-2xl font-black text-white tracking-tight">MakanMana Office</h1>
-          <p className="text-amber-100/90 text-sm font-medium mt-1">Cepat, Praktis, Kenyang!</p>
-        </div>
+    <div className="auth-page flex-1 flex flex-col">
+      <div className="auth-hero">
+        <BrandLogo />
+        <PwaInstallButton />
+        <div className="auth-food-scene"><span className="auth-orbit" /><FoodArt kind="meal" className="auth-meal" /><FoodArt kind="drink" className="auth-drink" /><span className="auth-star">✦</span></div>
+        <p className="eyebrow">Teman istirahat di kantor</p>
+        <h1>Makan enak.<br />Kerja lebih semangat.</h1>
+        <p>Pesan favoritmu, biar OB yang antar.</p>
       </div>
 
       {/* Auth Form Container */}
-      <div className="flex-1 px-8 pt-8 pb-12 flex flex-col">
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-slate-800">{isLogin ? 'Selamat Datang Kembali! 👋' : 'Daftar Akun Baru 🚀'}</h2>
+      <div className="flex-1 px-7 pt-7 pb-8 flex flex-col">
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold text-slate-800">{isLogin ? 'Selamat datang kembali' : 'Kenalan dulu, yuk'}</h2>
           <p className="text-slate-500 text-sm mt-1">
             {isLogin ? 'Silakan masuk menggunakan nomor HP Anda.' : 'Lengkapi data di bawah untuk memesan makan!'}
           </p>
@@ -94,63 +94,63 @@ export default function AuthPage() {
           {!isLogin && (
             <div className="space-y-2">
               <Label className="text-slate-700 font-semibold" htmlFor="name">Nama Lengkap</Label>
-              <Input 
-                id="name" 
-                placeholder="Contoh: Budi Santoso" 
+              <Input
+                id="name"
+                placeholder="Contoh: Budi Santoso"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required={!isLogin}
-                className="bg-slate-50 border-slate-200 h-12 rounded-xl focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white transition-all shadow-xs"
+                className="bg-slate-50 border-slate-200 h-12 rounded-xl focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500 focus-visible:bg-white transition-all shadow-xs"
               />
             </div>
           )}
           <div className="space-y-2">
-            <Label className="text-slate-700 font-semibold" htmlFor="phone">Nomor Hanphone</Label>
-            <Input 
-              id="phone" 
-              type="tel" 
-              placeholder="08123456789" 
+            <Label className="text-slate-700 font-semibold" htmlFor="phone">Nomor handphone</Label>
+            <Input
+              id="phone"
+              type="tel" autoComplete="tel"
+              placeholder="08123456789"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               required
-              className="bg-slate-50 border-slate-200 h-12 rounded-xl focus-visible:ring-amber-500"
+              className="bg-slate-50 border-slate-200 h-12 rounded-xl focus-visible:ring-emerald-500"
             />
           </div>
           <div className="space-y-2">
-            <Label className="text-slate-700 font-semibold" htmlFor="password">Password</Label>
+            <Label className="text-slate-700 font-semibold" htmlFor="password">Kata sandi</Label>
             <div className="relative">
-              <Input 
-                id="password" 
-                type={showPassword ? "text" : "password"} 
+              <Input
+                id="password" autoComplete={isLogin ? "current-password" : "new-password"}
+                type={showPassword ? "text" : "password"}
                 value={password}
                 placeholder="••••••••"
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="bg-slate-50 border-slate-200 h-12 rounded-xl focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white transition-all shadow-xs pr-10"
+                className="bg-slate-50 border-slate-200 h-12 rounded-xl focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500 focus-visible:bg-white transition-all shadow-xs pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-amber-600 focus:outline-none transition-colors"
-                tabIndex={-1}
+                aria-label={showPassword ? "Sembunyikan kata sandi" : "Tampilkan kata sandi"} className="min-w-11 min-h-11 grid place-items-center absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 focus:outline-none transition-colors"
+
               >
                 {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             </div>
           </div>
-          
-          <Button type="submit" size="lg" className="w-full mt-6 h-14 rounded-xl font-bold text-base shadow-lg shadow-amber-500/20 bg-amber-500 hover:bg-amber-600 text-white" disabled={loading}>
-            {loading ? 'Memproses...' : (isLogin ? 'Masuk Sekarang' : 'Daftar Sekarang')}
+
+          <Button type="submit" size="lg" className="w-full mt-6 h-14 rounded-xl font-bold text-base shadow-lg shadow-emerald-500/20 bg-emerald-500 hover:bg-emerald-600 text-white" disabled={loading || !online}>
+            {!online ? 'Hubungkan internet untuk masuk' : loading ? 'Memproses...' : (isLogin ? 'Masuk' : 'Buat akun')}
           </Button>
         </form>
-        
+
         <div className="mt-8 text-center pt-6 border-t border-slate-100">
           <p className="text-sm text-slate-500">
             {isLogin ? 'Belum punya akun? ' : 'Sudah terdaftar? '}
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={() => { setIsLogin(!isLogin); setPhone(''); setPassword(''); setFullName('') }}
-              className="text-amber-600 font-bold hover:text-amber-700 hover:underline inline-flex"
+              className="text-emerald-600 font-bold hover:text-emerald-700 hover:underline inline-flex"
             >
               {isLogin ? 'Daftar di sini' : 'Masuk di sini'}
             </button>
@@ -159,8 +159,8 @@ export default function AuthPage() {
       </div>
 
       {/* Footer Credit */}
-      <div className="py-10 text-center opacity-30 mt-4">
-        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Application Created by Dewa</p>
+      <div className="py-5 text-center mt-2">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.3em] text-slate-400">Dibuat dengan sepenuh hati oleh Dewa</p>
       </div>
     </div>
   )

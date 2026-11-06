@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 import React, { useState } from 'react';
 import { Trash2, Plus } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../ui/drawer';
@@ -25,16 +26,17 @@ export const CategoryManagerDrawer: React.FC<CategoryManagerDrawerProps> = ({
   const [newName, setNewName] = useState('');
 
   const handleAdd = async () => {
-    if (!newName.trim()) return;
-    await onAdd(newName.trim());
-    setNewName('');
+    if (isBusy) return;
+    if (!newName.trim()) return toast.error('Nama kategori wajib diisi.');
+    if (categories.some(name => name.trim().toLowerCase() === newName.trim().toLowerCase())) return toast.error('Kategori sudah tersedia.');
+    try { await onAdd(newName.trim()); setNewName(''); } catch { /* Parent reports the error; preserve the input. */ }
   };
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-12">
+      <DrawerContent className="max-w-[430px] mx-auto rounded-t-[28px] px-6 pb-12">
         <DrawerHeader className="items-center text-center">
-          <DrawerTitle className="text-2xl font-black flex flex-col items-center gap-2">
+          <DrawerTitle className="text-2xl font-semibold flex flex-col items-center gap-2">
             Kelola Kategori 📂
           </DrawerTitle>
           <DrawerDescription className="font-bold text-slate-500">
@@ -42,10 +44,10 @@ export const CategoryManagerDrawer: React.FC<CategoryManagerDrawerProps> = ({
           </DrawerDescription>
         </DrawerHeader>
 
-        <div className="py-6 space-y-8">
+        <div className="min-h-0 flex-1 overflow-y-auto py-6 space-y-8">
           {/* Current Categories */}
           <div className="space-y-4">
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
+            <Label className="text-[12px] font-semibold tracking-[0.2em] text-slate-400 ml-1">
               KATEGORI SAAT INI
             </Label>
             <div className="flex flex-wrap gap-2">
@@ -65,14 +67,14 @@ export const CategoryManagerDrawer: React.FC<CategoryManagerDrawerProps> = ({
                 </div>
               ))}
               {categories.length === 0 && (
-                <p className="text-[10px] font-bold text-slate-400 italic">Belum ada kategori kustom.</p>
+                <p className="text-[12px] font-bold text-slate-400 italic">Belum ada kategori kustom.</p>
               )}
             </div>
           </div>
 
           {/* Add New */}
           <div className="space-y-4">
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
+            <Label className="text-[12px] font-semibold tracking-[0.2em] text-slate-400 ml-1">
               TAMBAH KATEGORI BARU
             </Label>
             <div className="flex gap-2">
@@ -81,7 +83,7 @@ export const CategoryManagerDrawer: React.FC<CategoryManagerDrawerProps> = ({
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 disabled={isBusy}
-                className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white transition-all"
+                className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500 focus-visible:bg-white transition-all"
               />
               <Button 
                 onClick={handleAdd}
@@ -97,7 +99,7 @@ export const CategoryManagerDrawer: React.FC<CategoryManagerDrawerProps> = ({
         <DrawerFooter className="px-0">
           <Button 
             onClick={() => onOpenChange(false)} 
-            className="w-full h-16 rounded-3xl bg-slate-50 text-slate-500 font-bold border border-slate-100 hover:bg-slate-100 transition-all uppercase tracking-widest text-xs"
+            className="w-full h-16 rounded-3xl bg-slate-50 text-slate-500 font-bold border border-slate-100 hover:bg-slate-100 transition-all tracking-normal text-xs"
           >
             Tutup
           </Button>

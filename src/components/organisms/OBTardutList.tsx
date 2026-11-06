@@ -1,54 +1,56 @@
+import { useProofUrl } from '@/hooks/useProofUrl';
 import { useState } from 'react';
 import { Button } from '../ui/button';
 import { CalendarClock, Image as ImageIcon } from 'lucide-react';
-import { TardutRequest } from '../../types';
+import { TardutRequest, TardutStatus } from '../../types';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../ui/drawer';
 
 interface OBTardutListProps {
   requests: TardutRequest[];
-  onUpdateStatus: (requestId: string, status: string) => void;
+  onUpdateStatus: (requestId: string, status: TardutStatus) => void;
   formatRupiah: (n: number) => string;
 }
 
 export function OBTardutList({ requests, onUpdateStatus, formatRupiah }: OBTardutListProps) {
   const [selectedTardut, setSelectedTardut] = useState<TardutRequest | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const proof = useProofUrl(isModalOpen ? selectedTardut?.proof_url : null);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-black text-slate-800 tracking-tight">Titipan Tardut ({requests.length})</h2>
-        <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-xl">💵</div>
+        <h2 className="text-xl font-semibold text-slate-800 tracking-tight">Titipan Tardut ({requests.length})</h2>
+        <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-xl">💵</div>
       </div>
 
       {requests.length === 0 ? (
-        <div className="bg-slate-50 rounded-[32px] p-10 flex flex-col items-center justify-center text-center border-2 border-dashed border-slate-200">
+        <div className="bg-slate-50 rounded-[24px] p-10 flex flex-col items-center justify-center text-center border-2 border-dashed border-slate-200">
           <div className="w-20 h-20 bg-white rounded-[24px] flex items-center justify-center text-4xl mb-4 shadow-sm">✨</div>
-          <h3 className="font-black text-slate-800 mb-1">Tidak ada titipan</h3>
+          <h3 className="font-semibold text-slate-800 mb-1">Tidak ada titipan</h3>
           <p className="text-xs text-slate-400 font-medium">Belum ada teman-teman yang minta tarik tunai.</p>
         </div>
       ) : (
         <div className="space-y-4">
           {requests.map((req) => (
-            <div key={req.id} className="bg-white rounded-[32px] p-6 border border-slate-100 shadow-sm relative overflow-hidden group">
+            <div key={req.id} className="bg-white rounded-[24px] p-6 border border-slate-100 shadow-sm relative overflow-hidden group">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
-                    <div className="px-2 py-0.5 bg-slate-100 rounded-md text-[9px] font-black text-slate-500 uppercase tracking-wider">
+                    <div className="px-2 py-0.5 bg-slate-100 rounded-md text-[11px] font-semibold text-slate-500 tracking-wider">
                       {req.profiles?.name || 'User'}
                     </div>
                       <div className="flex items-center gap-1.5 text-slate-400">
                         <CalendarClock className="w-3 h-3" />
-                        <span className="text-[9px] font-black uppercase tracking-widest">
+                        <span className="text-[11px] font-semibold tracking-normal">
                           {new Date(req.created_at).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} • {new Date(req.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
                   </div>
-                  <h3 className="text-xl font-black text-slate-800 mb-1">
+                  <h3 className="text-xl font-semibold text-slate-800 mb-1">
                     {formatRupiah(req.amount)}
                   </h3>
                 </div>
-                <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner border border-amber-100">
+                <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner border border-emerald-100">
                   🏦
                 </div>
               </div>
@@ -63,13 +65,13 @@ export function OBTardutList({ requests, onUpdateStatus, formatRupiah }: OBTardu
                   className="h-12 border-slate-200 rounded-xl font-bold text-xs"
                 >
                   <ImageIcon className="w-4 h-4 mr-2" />
-                  BUKTI TF
+                  Bukti transfer
                 </Button>
                 <Button
                   onClick={() => onUpdateStatus(req.id, 'done')}
-                  className="h-12 bg-slate-900 text-white rounded-xl font-black text-xs shadow-lg shadow-slate-900/20 active:scale-95 transition-all"
+                  className="h-12 bg-slate-900 text-white rounded-xl font-semibold text-xs shadow-lg shadow-slate-900/20 active:scale-95 transition-all"
                 >
-                  SELESAIKAN ✅
+                  Selesaikan
                 </Button>
               </div>
             </div>
@@ -79,31 +81,31 @@ export function OBTardutList({ requests, onUpdateStatus, formatRupiah }: OBTardu
 
       {/* Proof Modal */}
       <Drawer open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 max-h-[90vh]">
-          <div className="mx-auto w-12 h-1.5 bg-slate-200 rounded-full mt-4 mb-4" />
+        <DrawerContent className="max-w-[430px] mx-auto rounded-t-[28px] px-6">
           <DrawerHeader className="px-0">
-            <DrawerTitle className="text-xl font-black text-slate-800">Bukti Transfer Tardut</DrawerTitle>
+            <DrawerTitle className="text-xl font-semibold text-slate-800">Bukti Transfer Tardut</DrawerTitle>
             <DrawerDescription className="text-slate-500 font-medium">Pastikan dana sudah masuk ke rekening penampung sebelum memproses.</DrawerDescription>
           </DrawerHeader>
 
           {selectedTardut && (
             <div className="flex-1 overflow-y-auto pb-8">
-              <div className="bg-slate-100 rounded-3xl overflow-hidden aspect-3/4 mb-6 border-2 border-amber-100 shadow-inner group relative">
+              {proof.isError && <button onClick={() => { void proof.refetch(); }} className="p-4 text-red-600">Gagal memuat bukti. Ketuk untuk coba lagi.</button>}
+              <div className="bg-slate-100 rounded-3xl overflow-hidden aspect-3/4 mb-6 border-2 border-emerald-100 shadow-inner group relative">
                 <img
-                  src={selectedTardut.proof_url}
+                  src={proof.data}
                   alt="Payment Proof"
                   className="w-full h-full object-contain"
                 />
               </div>
-              <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
-                <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-1">Nominal Titipan</p>
-                <p className="text-2xl font-black text-amber-900">{formatRupiah(selectedTardut.amount)}</p>
+              <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
+                <p className="text-[12px] font-semibold tracking-normal text-emerald-600 mb-1">Nominal Titipan</p>
+                <p className="text-2xl font-semibold text-emerald-900">{formatRupiah(selectedTardut.amount)}</p>
               </div>
             </div>
           )}
 
           <DrawerFooter className="px-0 pt-0 pb-10">
-            <Button onClick={() => setIsModalOpen(false)} className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black">Tutup</Button>
+            <Button onClick={() => setIsModalOpen(false)} className="w-full h-14 bg-slate-900 text-white rounded-2xl font-semibold">Tutup</Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>

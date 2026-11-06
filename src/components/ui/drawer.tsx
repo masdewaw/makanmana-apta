@@ -1,13 +1,16 @@
 import * as React from "react"
+import { X } from "lucide-react"
 import { Drawer as DrawerPrimitive } from "vaul"
 import { cn } from "@/lib/utils"
 
 const Drawer = ({
-  shouldScaleBackground = true,
+  shouldScaleBackground = false,
+  handleOnly = true,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Root>) => (
   <DrawerPrimitive.Root
     shouldScaleBackground={shouldScaleBackground}
+    handleOnly={handleOnly}
     {...props}
   />
 )
@@ -23,7 +26,7 @@ const DrawerOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DrawerPrimitive.Overlay
     ref={ref}
-    className={cn("fixed inset-0 z-50 bg-black/80", className)}
+    className={cn("fixed inset-0 z-50 bg-[#20382b]/40 backdrop-blur-[3px]", className)}
     {...props}
   />
 ))
@@ -32,22 +35,61 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => {
+  const [element, setElement] = React.useState<HTMLDivElement | null>(null)
+  const attachRef = React.useCallback((node: HTMLDivElement | null) => {
+    setElement(node)
+    if (typeof ref === "function") ref(node)
+    else if (ref) ref.current = node
+  }, [ref])
+
+  React.useLayoutEffect(() => {
+    if (!element) return
+    const viewport = window.visualViewport
+    const shell = document.querySelector<HTMLElement>(".mobile-shell")
+    const update = () => {
+      const bounds = shell?.getBoundingClientRect()
+      const width = bounds?.width ?? Math.min(document.documentElement.clientWidth, 430)
+      const left = bounds?.left ?? (document.documentElement.clientWidth - width) / 2
+      element.style.setProperty("--drawer-viewport-height", `${viewport?.height ?? window.innerHeight}px`)
+      element.style.setProperty("--drawer-left", `${left}px`)
+      element.style.setProperty("--drawer-width", `${width}px`)
+    }
+    update()
+    const resize = new ResizeObserver(update)
+    if (shell) resize.observe(shell)
+    // Scroll locking can change body margins without resizing the fixed-width shell.
+    const lock = new MutationObserver(update)
+    lock.observe(document.body, { attributes: true, attributeFilter: ["style", "class", "data-scroll-locked"] })
+    lock.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] })
+    viewport?.addEventListener("resize", update)
+    window.addEventListener("resize", update)
+    return () => {
+      resize.disconnect()
+      lock.disconnect()
+      viewport?.removeEventListener("resize", update)
+      window.removeEventListener("resize", update)
+    }
+  }, [element])
+
+  return (
   <DrawerPortal>
     <DrawerOverlay />
     <DrawerPrimitive.Content
-      ref={ref}
+      ref={attachRef}
       className={cn(
-        "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border border-none bg-white mx-auto max-w-[430px] shadow-2xl",
+        "mobile-drawer fixed inset-x-0 bottom-0 z-50 flex h-auto flex-col rounded-t-[10px] border border-none bg-white mx-auto max-w-[430px] shadow-2xl",
         className
       )}
       {...props}
     >
-      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-slate-100" />
+      <DrawerPrimitive.Handle aria-label="Tarik untuk menutup" className="shrink-0 mx-auto mt-4 mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
+      <DrawerPrimitive.Close aria-label="Tutup panel" className="drawer-close-button"><X size={19} /></DrawerPrimitive.Close>
       {children}
     </DrawerPrimitive.Content>
   </DrawerPortal>
-))
+  )
+})
 DrawerContent.displayName = "DrawerContent"
 
 const DrawerHeader = ({
@@ -55,7 +97,7 @@ const DrawerHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("grid gap-1.5 p-4 text-center sm:text-left", className)}
+    className={cn("shrink-0 grid gap-1.5 p-4 pr-8 text-left", className)}
     {...props}
   />
 )
@@ -66,7 +108,7 @@ const DrawerFooter = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+    className={cn("shrink-0 mt-auto flex flex-col gap-2 p-4", className)}
     {...props}
   />
 )

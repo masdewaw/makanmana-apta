@@ -1,3 +1,5 @@
+import { errorMessage } from '@/lib/errors';
+import { profileService } from '@/api/profiles';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { MapPin, Navigation, Clock, Zap } from 'lucide-react';
@@ -29,47 +31,47 @@ const mopedIcon = L.divIcon({
 });
 
 const TrackingMap: React.FC<TrackingMapProps> = ({ obName }) => {
+  const [retry, setRetry] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [location, setLocation] = useState<{ lat: number, lng: number } | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   useEffect(() => {
-    const targetName = obName.replace('OB 1', 'Bahul').replace('OB 2', 'Masber');
+    let active = true;
+    setLocation(null);
+    setLastUpdated(null);
     
     const fetchLocation = async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('last_lat, last_lng, last_updated_at')
-        .ilike('name', `%${targetName}%`)
-        .maybeSingle();
+      try {
+      const { data, error } = await profileService.getLocationByCode(obName);
+      if (error) throw error;
+      if (active) setLoadError(null);
       
-      if (data && data.last_lat) {
+      if (active && data && data.last_lat != null && data.last_lng != null) {
         setLocation({ lat: data.last_lat, lng: data.last_lng });
         setLastUpdated(data.last_updated_at);
       }
+      } catch (error) { if (active) setLoadError(errorMessage(error)); }
     };
 
-    fetchLocation();
+    void fetchLocation();
 
     const channel = supabase
-      .channel('tracking-location')
+      .channel(`tracking-location-${crypto.randomUUID()}`)
       .on('postgres_changes', { 
         event: 'UPDATE', 
         schema: 'public', 
         table: 'profiles' 
       }, (payload) => {
-        const name = payload.new.name?.toLowerCase();
-        const searchTarget = targetName.toLowerCase();
-        if (name?.includes(searchTarget)) {
-          setLocation({ lat: payload.new.last_lat, lng: payload.new.last_lng });
-          setLastUpdated(payload.new.last_updated_at);
-        }
+        if (payload.new.ob_code === obName) void fetchLocation();
       })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      active = false;
+      void supabase.removeChannel(channel);
     };
-  }, [obName]);
+  }, [obName, retry]);
 
   const getTimeAgo = (timestamp: string | null) => {
     if (!timestamp) return 'Belum ada data';
@@ -80,11 +82,12 @@ const TrackingMap: React.FC<TrackingMapProps> = ({ obName }) => {
 
   return (
     <div className="w-full space-y-4">
-      <div className="w-full aspect-video bg-slate-100 rounded-[32px] overflow-hidden relative border-4 border-white shadow-2xl group z-0">
+      <div className="w-full aspect-video bg-slate-100 rounded-[24px] overflow-hidden relative border-4 border-white shadow-2xl group z-0">
+        {loadError && <button className="absolute top-2 inset-x-2 z-[1000] bg-red-50 p-2 text-sm" onClick={() => setRetry(value => value + 1)}>Gagal memuat lokasi. Coba lagi.</button>}
         {!location ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 gap-3">
-             <Zap className="w-8 h-8 text-amber-500 animate-pulse" />
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
+             <Zap className="w-8 h-8 text-emerald-500 animate-pulse" />
+             <p className="text-[12px] font-semibold text-slate-400 uppercase tracking-normal text-center">
                Mencari koordinat GPS {obName}...
              </p>
           </div>
@@ -103,8 +106,8 @@ const TrackingMap: React.FC<TrackingMapProps> = ({ obName }) => {
             <Marker position={[location.lat, location.lng]} icon={mopedIcon}>
               <Popup className="font-sans">
                 <div className="p-1">
-                  <p className="font-black text-xs">{obName}</p>
-                  <p className="text-[9px] text-slate-500 uppercase">{getTimeAgo(lastUpdated)}</p>
+                  <p className="font-semibold text-xs">{obName}</p>
+                  <p className="text-[11px] text-slate-500 uppercase">{getTimeAgo(lastUpdated)}</p>
                 </div>
               </Popup>
             </Marker>
@@ -117,7 +120,7 @@ const TrackingMap: React.FC<TrackingMapProps> = ({ obName }) => {
           <div className="absolute top-4 right-4 z-1000">
              <div className="bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full shadow-lg border border-white flex items-center gap-2">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">LIVE TRACKING</span>
+                <span className="text-[12px] font-semibold text-slate-800 uppercase tracking-tight">LIVE TRACKING</span>
              </div>
           </div>
         )}
@@ -126,12 +129,12 @@ const TrackingMap: React.FC<TrackingMapProps> = ({ obName }) => {
         {location && (
           <div className="absolute bottom-4 left-4 right-4 z-1000 bg-white/90 backdrop-blur-md p-3 rounded-2xl flex items-center justify-between border border-white shadow-xl">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-white">
+              <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-white">
                 <Navigation className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Posisi Terkini</p>
-                <p className="text-[10px] font-mono text-slate-800 mt-0.5 tracking-tight">
+                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-normal leading-none">Posisi Terkini</p>
+                <p className="text-[12px] font-mono text-slate-800 mt-0.5 tracking-tight">
                   {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
                 </p>
               </div>
@@ -139,20 +142,20 @@ const TrackingMap: React.FC<TrackingMapProps> = ({ obName }) => {
             <div className="text-right">
               <div className="flex items-center gap-1 justify-end">
                 <Clock className="w-3 h-3 text-slate-400" />
-                <span className="text-[8px] font-black text-slate-800 uppercase">{getTimeAgo(lastUpdated)}</span>
+                <span className="text-[11px] font-semibold text-slate-800 uppercase">{getTimeAgo(lastUpdated)}</span>
               </div>
             </div>
           </div>
         )}
       </div>
 
-      <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex items-start gap-3">
+      <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex items-start gap-3">
         <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center shrink-0">
-          <MapPin className="w-5 h-5 text-amber-500" />
+          <MapPin className="w-5 h-5 text-emerald-500" />
         </div>
         <div>
-          <h4 className="text-xs font-black text-slate-800 uppercase">Informasi Lokasi</h4>
-          <p className="text-[10px] text-slate-500 font-bold leading-relaxed mt-1 uppercase">
+          <h4 className="text-xs font-semibold text-slate-800 uppercase">Informasi Lokasi</h4>
+          <p className="text-[12px] text-slate-500 font-bold leading-relaxed mt-1 uppercase">
             LOKASI DIUPDATE SETIAP 10 DETIK. JIKA POSISI TIDAK BERGERAK, KEMUNGKINAN OB SEDANG DI DALAM PERJALANAN ATAU SINYAL GPS LEMAH
           </p>
         </div>

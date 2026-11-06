@@ -1,7 +1,15 @@
+// Status values verified against production CHECK constraints on 2026-11-06.
+export type OrderStatus = 'waiting' | 'done';
+export type PaymentStatus = 'pending' | 'paid';
+export type PaymentMethod = 'cash' | 'transfer';
+export type TardutStatus = 'waiting' | 'done' | 'cancelled';
+export type RoomStatus = 'open' | 'finished';
+
 export interface Profile {
   id: string;
   name: string;
   role?: 'user' | 'OB';
+  ob_code?: 'OB 1' | 'OB 2' | null;
   last_lat?: number;
   last_lng?: number;
   last_updated_at?: string;
@@ -21,9 +29,9 @@ export interface Order {
   profiles?: { name: string };
   food_name: string;
   price: number;
-  payment_method: string;
-  payment_status: string;
-  order_status: string;
+  payment_method: PaymentMethod;
+  payment_status: PaymentStatus;
+  order_status: OrderStatus;
   proof_url: string | null;
   assigned_to_ob?: string;
   transfer_to?: string | null;
@@ -38,7 +46,7 @@ export interface TardutRequest {
   profiles?: { name: string };
   amount: number;
   proof_url: string;
-  status: string;
+  status: TardutStatus;
   assigned_to_ob?: string;
   created_at: string;
 }
@@ -50,7 +58,7 @@ export interface TemanMakanGroup {
   title: string;
   description?: string | null;
   bank_info: string | null;
-  status: 'open' | 'finished';
+  status: RoomStatus;
   deadline: string | null;
   created_at: string;
 }
@@ -77,7 +85,7 @@ export interface SplitBill {
   fees?: number;
   delivery_fee?: number;
   bank_info: string | null;
-  status: 'open' | 'finished';
+  status: RoomStatus;
   created_at: string;
 }
 

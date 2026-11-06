@@ -1,20 +1,21 @@
-import { useEffect, useState, useRef } from 'react'
+import { useTourNavigation } from '../components/organisms/OnboardingProvider'
+import { BrandLogo } from '../components/molecules/BrandLogo'
+import { useObNames } from '../hooks/useObNames'
+import { PersonalMenu } from '../components/organisms/PersonalMenu'
+import { Home, ReceiptText, UserRound, ArrowUpRight } from 'lucide-react'
+import { DataError } from '../components/molecules/DataError'
+import { MAX_ORDER_NOTE_LENGTH } from '../lib/order-notes'
+import { type CartItem, readCart, writeCart } from '../lib/cart-storage'
+import { requireData, errorMessage } from '../lib/errors'
+import { orderService } from '../api/orders'
+import { paymentProofService } from '../api/paymentProofs'
+import { catalogService } from '../api/catalog'
+import { profileService } from '../api/profiles'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { toast } from 'sonner'
-import { 
-	MapPin, 
-	ChevronRight, 
-	ShoppingBag, 
-	Banknote, 
-	Star,
-	CheckCircle, 
-	Search, 
-	Plus, 
-	Heart,
-	Settings,
-	Trophy
-} from 'lucide-react'
+import { MapPin, Heart } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '../components/ui/drawer'
 import { Label } from '../components/ui/label'
@@ -39,26 +40,32 @@ import TrackingMap from '../components/molecules/TrackingMap'
 import { SettingsDrawer } from '../components/organisms/SettingsDrawer'
 import { RankingDrawer } from '../components/organisms/RankingDrawer'
 
+import { validateFood } from '../lib/form-validation'
 import { Menu, TemanMakanGroup, SplitBill } from '../types'
 
-interface CartItem extends Menu {
-	quantity: number
-}
-
 export default function UserDashboard({ session }: { session: Session }) {
+	const obName = useObNames()
 	// Standard State
+	const [initialLoadError, setInitialLoadError] = useState(false)
+	const [isLoadingMenus, setIsLoadingMenus] = useState(true)
+	const favoriteBusy = useRef(false)
 	const [profileName, setProfileName] = useState('')
 	const [menus, setMenus] = useState<Menu[]>([])
 	const [searchQuery, setSearchQuery] = useState('')
 	const [activeTab, setActiveTab] = useState<'home' | 'riwayat'>('home')
 	const [activeView, setActiveView] = useState<'personal' | 'teman_makan' | 'split_bill'>('personal')
+	useTourNavigation(useCallback(() => { setActiveTab('home'); setActiveView('personal'); setSelectedCategory('Semua'); setSearchQuery('') }, []))
 	const [recommendation, setRecommendation] = useState<Menu | null>(null)
 	const [communityOrders, setCommunityOrders] = useState<any[]>([])
 	const [isCommunityDrawerOpen, setIsCommunityDrawerOpen] = useState(false)
 	const [selectedCategory, setSelectedCategory] = useState('Semua')
 	const [dbCategories, setDbCategories] = useState<string[]>([])
 	const [favorites, setFavorites] = useState<string[]>([])
-	const [cart, setCart] = useState<CartItem[]>([])
+	const [cart, setCart] = useState<CartItem[]>(() => readCart(session.user.id).items)
+	const [isPlacingOrder, setIsPlacingOrder] = useState(false)
+	const checkoutLock = useRef(false)
+	const pendingOrderIds = useRef<Record<string, string[]>>(readCart(session.user.id).orderIds)
+	const uploadedProof = useRef<{ file: File; url: string } | null>(null)
 	const [allProfiles, setAllProfiles] = useState<{ id: string, name: string }[]>([])
 	const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 	const [historyPage, setHistoryPage] = useState(1)
@@ -79,6 +86,15 @@ export default function UserDashboard({ session }: { session: Session }) {
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 	const [isRankingOpen, setIsRankingOpen] = useState(false)
 	
+	const storageWarned = useRef(false)
+	const persistCart = (items: CartItem[]) => {
+		if (!writeCart(session.user.id, items, pendingOrderIds.current) && !storageWarned.current) {
+			storageWarned.current = true
+			toast.error('Browser tidak dapat menyimpan keranjang. Jangan refresh sebelum pesanan selesai.')
+		}
+	}
+	useEffect(() => { persistCart(cart) }, [cart, session.user.id])
+
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const categories = ['Semua', '🌟 Favoritku', ...dbCategories]
 
@@ -86,51 +102,45 @@ export default function UserDashboard({ session }: { session: Session }) {
 	const userId = session.user.id
 	
 	// Active Orders (polled)
-	const { activeOrders, createOrder, isCreating: isPlacingOrder } = useOrders({ 
+	const { activeOrders, createOrder, error: ordersError, refetch: retryOrders } = useOrders({
 		role: 'user', 
 		userId 
 	})
 
 	// Paginated History Orders
-	const { historyOrders, totalCount: totalHistory } = useOrders({
+	const { historyOrders, totalCount: totalHistory, error: historyError, refetch: retryHistory } = useOrders({
 		role: 'user',
 		userId,
 		status: 'done',
 		limit: itemsPerPage,
 		offset: (historyPage - 1) * itemsPerPage
 	})
-	const { requests: tardutRequests, submitTardut, isSubmitting: isSubmittingTardut } = useTardut({ userId })
-	const { rooms: tmGroups } = useTemanMakan()
-	const { bills: splitBills, finishBill } = useSplitBill()
+	const { requests: tardutRequests, submitTardut, isSubmitting: isSubmittingTardut, error: tardutError, refetch: retryTardut } = useTardut({ userId })
+	const { rooms: tmGroups, error: roomsError, refetch: retryRooms } = useTemanMakan()
+	const { bills: splitBills, finishBill, error: billsError, refetch: retryBills } = useSplitBill()
 
-	useEffect(() => {
-		fetchProfile()
-		fetchMenus()
-		fetchCommunityOrders()
-		fetchCategories()
-		fetchFavorites()
-		fetchAllProfiles()
-	}, [])
+	const loadDashboard = async () => {
+		setIsLoadingMenus(true)
+		const results = await Promise.allSettled([fetchProfile(), fetchMenus(), fetchCommunityOrders(), fetchCategories(), fetchFavorites(), fetchAllProfiles()])
+		setInitialLoadError(results.some(result => result.status === 'rejected'))
+		setIsLoadingMenus(false)
+	}
+	useEffect(() => { void loadDashboard() }, [userId])
 
 	const fetchProfile = async () => {
-		const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
+		const data = requireData(await profileService.getProfile(userId))
 		if (data) {
 			setProfileName(data.name)
 		}
 	}
 
 	const fetchMenus = async () => {
-		const { data: menuData } = await supabase.from('menus').select('*').order('food_name')
+		const menuData = requireData(await catalogService.getMenus())
 		if (menuData) {
 			setMenus(menuData)
 			
 			// Personalized Recommendation Logic
-			const { data: orderHistory } = await supabase
-				.from('orders')
-				.select('food_name')
-				.eq('user_id', userId)
-				.order('created_at', { ascending: false })
-				.limit(50)
+			const orderHistory = requireData(await orderService.getRecentFoodNames(userId))
 
 			let recommendedMenu: Menu | undefined;
 
@@ -155,28 +165,22 @@ export default function UserDashboard({ session }: { session: Session }) {
 	}
 
 	const fetchCategories = async () => {
-		const { data } = await supabase.from('categories').select('name').order('name')
+		const data = requireData(await catalogService.getCategories())
 		if (data) setDbCategories(data.map(c => c.name))
 	}
 
 	const fetchFavorites = async () => {
-		const { data } = await supabase.from('favorites').select('menu_id').eq('user_id', userId)
+		const data = requireData(await catalogService.getFavorites(userId))
 		if (data) setFavorites(data.map(f => f.menu_id))
 	}
 
 	const fetchAllProfiles = async () => {
-		const { data } = await supabase.from('profiles').select('id, name').order('name')
+		const data = requireData(await profileService.getNames())
 		if (data) setAllProfiles(data)
 	}
 
 	const fetchCommunityOrders = async () => {
-		const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-		const { data } = await supabase
-			.from('orders')
-			.select('*, profiles(name)')
-			.gt('created_at', twoHoursAgo)
-			.order('created_at', { ascending: false })
-			.limit(10)
+		const data = requireData(await orderService.getCommunityOrders())
 		if (data) setCommunityOrders(data)
 	}
 
@@ -185,6 +189,7 @@ export default function UserDashboard({ session }: { session: Session }) {
 	}
 
 	const toggleCart = (menu: Menu) => {
+		if (checkoutLock.current) return
 		setCart(prev => {
 			const exists = prev.find(item => item.id === menu.id)
 			if (exists) return prev.filter(item => item.id !== menu.id)
@@ -193,6 +198,7 @@ export default function UserDashboard({ session }: { session: Session }) {
 	}
 
 	const updateQuantity = (id: string, delta: number) => {
+		if (checkoutLock.current) return
 		setCart(prev => prev.map(item => {
 			if (item.id === id) {
 				return { ...item, quantity: item.quantity + delta }
@@ -201,26 +207,33 @@ export default function UserDashboard({ session }: { session: Session }) {
 		}).filter(item => item.quantity > 0))
 	}
 
+	const updateNote = (id: string, note: string) => {
+		if (checkoutLock.current) return
+		setCart(items => items.map(item => item.id === id ? { ...item, note: note.slice(0, MAX_ORDER_NOTE_LENGTH) } : item))
+	}
+
 	const handleToggleFavorite = async (e: React.MouseEvent, menuId: string) => {
 		e.stopPropagation()
+		if (favoriteBusy.current) return
+		favoriteBusy.current = true
+		const before = favorites
 		const isFavorite = favorites.includes(menuId)
-		if (isFavorite) {
-			setFavorites(prev => prev.filter(id => id !== menuId))
-			await supabase.from('favorites').delete().eq('user_id', userId).eq('menu_id', menuId)
-		} else {
-			setFavorites(prev => [...prev, menuId])
-			await supabase.from('favorites').insert({ user_id: userId, menu_id: menuId })
-		}
+		setFavorites(prev => isFavorite ? prev.filter(id => id !== menuId) : [...prev, menuId])
+		try {
+			requireData(await (isFavorite ? catalogService.deleteFavorite(userId, menuId) : catalogService.addFavorite(userId, menuId)))
+		} catch (error) { setFavorites(before); toast.error(errorMessage(error)) }
+		finally { favoriteBusy.current = false }
 	}
 
 	const handleAddToCartManual = () => {
-		if (!manualFoodName || !manualFoodPrice) {
-			toast.error("Nama dan harga harus diisi!")
+		const error = validateFood(manualFoodName, manualFoodPrice)
+		if (error) {
+			toast.error(error)
 			return
 		}
 		const newItem: CartItem = {
 			id: `manual-${Date.now()}`,
-			food_name: manualFoodName,
+			food_name: manualFoodName.trim(),
 			price: Number(manualFoodPrice),
 			category: 'Lainnya',
 			quantity: 1
@@ -234,7 +247,8 @@ export default function UserDashboard({ session }: { session: Session }) {
 
 	const handleLogout = async () => {
 		if (window.confirm("Apakah Anda yakin ingin keluar?")) {
-			await supabase.auth.signOut()
+			const { error } = await supabase.auth.signOut()
+			if (error) toast.error(errorMessage(error))
 		}
 	}
 
@@ -254,219 +268,26 @@ export default function UserDashboard({ session }: { session: Session }) {
 	const totalPrice = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0)
 
 	return (
-		<div className="flex-1 flex flex-col bg-slate-50 overflow-y-auto w-full relative pb-32">
-			{/* Header */}
-			<div className="bg-white px-5 pt-6 pb-4 shadow-sm z-10 sticky top-0">
-				<div className="flex justify-between items-center mb-4">
-					<div className="flex items-center gap-2">
-						<div className="bg-amber-100 p-2 rounded-full">
-							<MapPin className="h-5 w-5 text-amber-600" />
-						</div>
-						<div>
-							<p className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Lokasi Pengantaran</p>
-							<h2 className="text-sm font-bold tracking-tight text-slate-800 flex items-center">Kantor Utama <ChevronRight className="h-3 w-3 ml-1 text-slate-400" /></h2>
-						</div>
-					</div>
-					<button onClick={() => setIsSettingsOpen(true)} className="text-slate-400 hover:text-slate-600 transition p-1">
-						<Settings className="h-6 w-6" />
-					</button>
-				</div>
-			</div>
-
-			{activeTab === 'home' && (
-				<div className="bg-white px-5 pb-4 border-b border-slate-100 flex gap-4 sticky top-[80px] z-10">
-					{(['personal', 'teman_makan', 'split_bill'] as const).map(view => (
-						<button
-							key={view}
-							onClick={() => setActiveView(view)}
-							className={`flex-1 py-3 text-[10px] font-black uppercase tracking-tighter transition-all border-b-2 ${activeView === view ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 opacity-60'}`}
-						>
-							{view.replace('_', ' ')} {view === 'personal' ? '🍱' : view === 'teman_makan' ? '🤝' : '🧾'}
-						</button>
-					))}
-				</div>
-			)}
+		<div className="mobile-page flex-1 flex flex-col bg-slate-50 overflow-y-auto w-full relative pb-32">
+			<DataError error={initialLoadError} label="Menu dan profil" onRetry={loadDashboard} />
+			<DataError error={ordersError} label="Pesanan" onRetry={retryOrders} />
+			{activeTab === 'riwayat' && <DataError error={historyError} label="Riwayat" onRetry={retryHistory} />}
+			{activeView === 'teman_makan' && <DataError error={roomsError} label="Room" onRetry={retryRooms} />}
+			{activeView === 'split_bill' && <DataError error={billsError} label="Patungan" onRetry={retryBills} />}
+			<header className="office-header">
+				<BrandLogo />
+				<div className="header-actions"><span className="office-location"><MapPin size={13} /> Kantor</span><button data-tour="user-settings" className="profile-avatar" aria-label="Buka pengaturan akun" onClick={() => setIsSettingsOpen(true)}>{(profileName || 'K').slice(0,1).toUpperCase()}</button></div>
+			</header>
 
 			<div className="p-5 space-y-6 flex-1">
 				{activeTab === 'home' ? (
 					<>
-						{activeView === 'personal' && (
-							<>
-								<div className="mb-2">
-									<h1 className="text-2xl font-black text-slate-800 tracking-tight">Halo, {profileName || 'User'}! 👋</h1>
-									<p className="text-slate-500 font-medium">Lagi pengen makan apa hari ini?</p>
-								</div>
-
-								<div
-									onClick={() => setIsCommunityDrawerOpen(true)}
-									className="bg-linear-to-br from-amber-500 to-orange-600 rounded-[32px] p-6 shadow-xl shadow-amber-500/20 relative overflow-hidden group cursor-pointer active:scale-[0.98] transition-all"
-								>
-									<div className="absolute -right-4 -bottom-4 opacity-20 group-hover:scale-110 transition-transform duration-500">
-										<ShoppingBag className="w-32 h-32 text-white" />
-									</div>
-									<div className="relative z-10 flex items-center justify-between gap-4">
-										<div className="flex-1">
-											<div className="flex items-center gap-2 mb-2">
-												<span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-												<span className="text-[10px] font-black text-white/80 uppercase tracking-widest">LIVE INSPIRASI</span>
-											</div>
-											<h3 className="text-xl font-black text-white leading-tight mb-2">Bingung mau makan apa? 🤔</h3>
-											<p className="text-white/80 text-xs font-bold flex items-center gap-1.5">
-												Intip pesanan yang lain <ChevronRight className="w-4 h-4 bg-white/20 rounded-full p-0.5" />
-											</p>
-										</div>
-										<div className="w-16 h-16 bg-white/15 backdrop-blur-md rounded-2xl flex items-center justify-center text-3xl shadow-inner border border-white/10">🥘</div>
-									</div>
-									
-									{communityOrders.length > 0 && (
-										<div className="mt-4 pt-4 border-t border-white/10 flex items-center gap-2 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
-											<div className="flex -space-x-2 shrink-0">
-												{communityOrders.slice(0, 3).map((o, idx) => (
-													<div key={idx} className="w-6 h-6 rounded-full bg-white border-2 border-amber-600 flex items-center justify-center text-[8px] font-black text-amber-700 shadow-sm">
-														{o.profiles?.name?.[0]}
-													</div>
-												))}
-											</div>
-											<p className="text-[9px] font-black text-white/70 uppercase tracking-tighter truncate">
-												Lagi ada {communityOrders.length} orang jajan sekarang!
-											</p>
-										</div>
-									)}
-								</div>
-
-								<div className="grid grid-cols-2 gap-4">
-									<div
-										onClick={() => setIsTardutDrawerOpen(true)}
-										className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex items-center gap-3 hover:border-amber-200 transition-all cursor-pointer group active:scale-95"
-									>
-										<div className="w-10 h-10 bg-amber-100 rounded-2xl flex items-center justify-center group-hover:bg-amber-500 group-hover:text-white transition-colors duration-300">
-											<Banknote className="w-5 h-5 text-amber-600 group-hover:text-white transition-colors" />
-										</div>
-										<div className="flex-1">
-											<h4 className="font-black text-slate-800 text-[11px] tracking-tight">Tardut 🚀</h4>
-											<p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Tarik Duit</p>
-										</div>
-									</div>
-
-									<div
-										onClick={() => setIsRankingOpen(true)}
-										className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex items-center gap-3 hover:border-orange-200 transition-all cursor-pointer group active:scale-95"
-									>
-										<div className="w-10 h-10 bg-orange-100 rounded-2xl flex items-center justify-center group-hover:bg-orange-500 group-hover:text-white transition-colors duration-300">
-											<Trophy className="w-5 h-5 text-orange-600 group-hover:text-white transition-colors" />
-										</div>
-										<div className="flex-1">
-											<h4 className="font-black text-slate-800 text-[11px] tracking-tight">Ranking 🏆</h4>
-											<p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Terlaris</p>
-										</div>
-									</div>
-								</div>
-
-								{recommendation && (
-									<div className="animate-in fade-in slide-in-from-bottom-4 duration-700 delay-200">
-										<div className="flex items-center justify-between mb-3 px-1">
-											<h3 className="font-bold text-slate-800 text-lg">Khusus Buat Kamu! ✨</h3>
-										</div>
-										<div 
-											onClick={() => toggleCart(recommendation)}
-											className={`rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden cursor-pointer transition-all active:scale-[0.98] group ${cart.some(c => c.id === recommendation.id) ? 'bg-linear-to-br from-amber-600 to-orange-700 ring-4 ring-amber-500/20' : 'bg-linear-to-br from-amber-500 to-orange-500 hover:shadow-amber-500/30'}`}
-										>
-											<div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform duration-700">
-												<Star className="h-40 w-40" fill="currentColor" />
-											</div>
-											{cart.some(c => c.id === recommendation.id) && (
-												<div className="absolute top-6 right-6 bg-white text-amber-600 p-2 rounded-full shadow-2xl z-10 animate-in zoom-in-50 duration-500">
-													<CheckCircle className="h-6 w-6" />
-												</div>
-											)}
-											<p className="text-amber-100 font-black text-[10px] mb-2 uppercase tracking-[0.2em] opacity-80">Berdasarkan seleramu</p>
-											<h2 className="text-2xl font-black drop-shadow-md leading-tight max-w-[80%] mb-4">{recommendation.food_name}</h2>
-											<div className="flex items-center justify-between mt-auto">
-												<div className="px-4 py-2 bg-white/20 backdrop-blur-md rounded-2xl border border-white/10 font-black text-lg">
-													{formatRupiah(recommendation.price)}
-												</div>
-												<span className="text-[10px] font-black uppercase tracking-widest bg-white text-amber-600 px-4 py-2 rounded-full shadow-lg group-hover:bg-slate-900 group-hover:text-white transition-colors">
-													{cart.some(c => c.id === recommendation.id) ? 'DIPILIH ✅' : 'AMBIL INI! 😋'}
-												</span>
-											</div>
-										</div>
-									</div>
-								)}
-
-								{activeOrders.length > 0 && (
-									<div>
-										<div className="flex items-center justify-between mb-3 px-1">
-											<h3 className="font-bold text-slate-800 text-lg">Pesanan Aktif 🛵</h3>
-										</div>
-										<div className="space-y-3">
-											{activeOrders.map(order => (
-												<OrderCard key={order.id} role="user" order={order} formatRupiah={formatRupiah} onTrack={setTrackingOb} />
-											))}
-										</div>
-									</div>
-								)}
-
-								<div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide -mx-5 px-5">
-									{categories.map(cat => (
-										<button
-											key={cat}
-											onClick={() => setSelectedCategory(cat)}
-											className={`shrink-0 px-6 py-3 rounded-full text-xs font-black transition-all border ${selectedCategory === cat ? 'bg-amber-500 border-amber-600 text-white shadow-lg shadow-amber-500/20 scale-105' : 'bg-white border-slate-100 text-slate-500 hover:border-amber-200'}`}
-										>
-											{cat}
-										</button>
-									))}
-								</div>
-
-								<div className="relative mb-6">
-									<Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-									<input
-										type="text"
-										placeholder="Cari makanan..."
-										value={searchQuery}
-										onChange={(e) => setSearchQuery(e.target.value)}
-										className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-2xl bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-sm font-medium h-12"
-									/>
-								</div>
-
-								<div className="grid grid-cols-2 gap-4">
-									<div
-										onClick={() => setIsManualDrawerOpen(true)}
-										className="rounded-[32px] p-5 border-2 border-dashed border-amber-200 bg-amber-50/30 flex flex-col items-center justify-center text-center gap-2 cursor-pointer active:scale-95 transition-all group hover:bg-amber-50 hover:border-amber-400 min-h-[160px]"
-									>
-										<div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm text-amber-500"><Plus className="w-6 h-6" /></div>
-										<p className="text-[10px] font-black text-amber-700 leading-tight uppercase tracking-tight">Ketik Manual ✏️</p>
-									</div>
-
-									{menus
-										.filter(m => {
-											const matchSearch = m.food_name.toLowerCase().includes(searchQuery.toLowerCase())
-											const matchCat = selectedCategory === 'Semua' || (selectedCategory === '🌟 Favoritku' && favorites.includes(m.id)) || m.category === selectedCategory
-											return matchSearch && matchCat
-										})
-										.map(m => {
-											const isInCart = cart.some(c => c.id === m.id)
-											return (
-												<div
-													key={m.id}
-													onClick={() => toggleCart(m)}
-													className={`rounded-[32px] p-4 border shadow-sm active:scale-95 transition-all cursor-pointer flex flex-col justify-between relative min-h-[160px] group ${isInCart ? 'border-amber-500 bg-amber-50 ring-4 ring-amber-500/10' : 'bg-white border-slate-100 hover:border-amber-200'}`}
-												>
-													{isInCart && <div className="absolute top-0 right-0 p-3 bg-amber-500 text-white rounded-bl-[20px]"><CheckCircle className="h-4 w-4" /></div>}
-													<button onClick={(e) => handleToggleFavorite(e, m.id)} className={`absolute top-3 left-3 p-1.5 rounded-full backdrop-blur-sm ${favorites.includes(m.id) ? 'bg-pink-50 text-pink-500' : 'bg-white/50 text-slate-300'}`}>
-														<Heart className={`w-4 h-4 ${favorites.includes(m.id) ? 'fill-pink-500' : ''}`} />
-													</button>
-													<div>
-														<div className="w-10 h-10 rounded-xl bg-slate-50 mb-3 flex items-center justify-center text-xl">🍱</div>
-														<h4 className="font-black text-xs text-slate-800 leading-tight line-clamp-2">{m.food_name}</h4>
-													</div>
-													<p className="text-slate-900 font-black text-sm">{formatRupiah(m.price)}</p>
-												</div>
-											)
-										})}
-								</div>
-							</>
-						)}
+						{activeView === 'personal' && <PersonalMenu loading={isLoadingMenus} name={profileName} menus={menus} categories={categories}
+							selectedCategory={selectedCategory} onCategory={setSelectedCategory} search={searchQuery} onSearch={setSearchQuery}
+							favorites={favorites} cart={cart} onFavorite={handleToggleFavorite} onAdd={toggleCart} onQuantity={updateQuantity}
+							onManual={() => setIsManualDrawerOpen(true)} onInspiration={() => setIsCommunityDrawerOpen(true)}
+							onTardut={() => setIsTardutDrawerOpen(true)} onRanking={() => setIsRankingOpen(true)}
+							recommendation={recommendation} activeOrders={activeOrders} onTrack={setTrackingOb} formatRupiah={formatRupiah} />}
 
 						{activeView === 'teman_makan' && (
 							!activeTmGroup ? (
@@ -500,10 +321,10 @@ export default function UserDashboard({ session }: { session: Session }) {
 					</>
 				) : (
 					<div className="space-y-6 pb-20">
-						<h1 className="text-2xl font-black text-slate-800 tracking-tight">Riwayat Makan 🕰️</h1>
+						<h1 className="text-2xl font-semibold text-slate-800 tracking-tight">Riwayat Makan 🕰️</h1>
 						{historyOrders.length === 0 ? (
-							<div className="text-center py-16 bg-white rounded-[40px] border-2 border-dashed border-slate-200">
-								<p className="font-black text-slate-400">Belum ada riwayat pesanan.</p>
+							<div className="text-center py-16 bg-white rounded-[28px] border-2 border-dashed border-slate-200">
+								<p className="font-semibold text-slate-400">Belum ada riwayat pesanan.</p>
 							</div>
 						) : (
 							<div className="space-y-4">
@@ -515,17 +336,17 @@ export default function UserDashboard({ session }: { session: Session }) {
 									<Button
 										disabled={historyPage === 1}
 										onClick={() => setHistoryPage(p => p - 1)}
-										className="h-10 px-4 bg-white text-slate-900 border border-slate-200 font-bold text-[10px]"
+										className="h-10 px-4 bg-white text-slate-900 border border-slate-200 font-bold text-[12px]"
 									>
-										SEBELUMNYA
+										Sebelumnya
 									</Button>
-									<span className="text-[10px] font-black text-slate-400">HALAMAN {historyPage} / {Math.ceil(totalHistory / itemsPerPage) || 1}</span>
+									<span className="text-[12px] font-semibold text-slate-400">HALAMAN {historyPage} / {Math.ceil(totalHistory / itemsPerPage) || 1}</span>
 									<Button
 										disabled={historyPage >= Math.ceil(totalHistory / itemsPerPage)}
 										onClick={() => setHistoryPage(p => p + 1)}
-										className="h-10 px-4 bg-white text-slate-900 border border-slate-200 font-bold text-[10px]"
+										className="h-10 px-4 bg-white text-slate-900 border border-slate-200 font-bold text-[12px]"
 									>
-										BERIKUTNYA
+										Berikutnya
 									</Button>
 								</div>
 							</div>
@@ -534,39 +355,15 @@ export default function UserDashboard({ session }: { session: Session }) {
 				)}
 			</div>
 
-			{/* Floating Navigation & Cart */}
-			{cart.length > 0 && activeTab === 'home' && (
-				<div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[430px] px-5 z-40">
-					<div
-						onClick={() => setIsDrawerOpen(true)}
-						className="bg-black text-white p-4 rounded-[28px] shadow-2xl flex items-center justify-between"
-					>
-						<div className="flex items-center gap-4">
-							<div className="bg-amber-500 p-2 rounded-2xl relative">
-								<ShoppingBag className="h-6 w-6" />
-								<span className="absolute -top-2 -right-2 bg-white text-black text-[10px] font-black w-6 h-6 rounded-full flex items-center justify-center border-2 border-black">{cart.reduce((a,b)=>a+b.quantity,0)}</span>
-							</div>
-							<div>
-								<p className="text-base font-black">{formatRupiah(totalPrice)}</p>
-							</div>
-						</div>
-						<div className="flex items-center gap-2 font-black text-xs uppercase tracking-widest text-amber-400 pr-2">
-							Lanjut <ChevronRight className="h-5 w-5" />
-						</div>
-					</div>
-				</div>
-			)}
-
-			<div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white/80 backdrop-blur-xl border-t border-slate-100 flex justify-around items-center pt-3 pb-8 px-8 z-30 shadow-lg">
-				<button onClick={() => setActiveTab('home')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'home' ? 'text-amber-600 scale-110' : 'text-slate-400'}`}>
-					<Star className={`w-6 h-6 ${activeTab === 'home' ? 'fill-amber-600' : ''}`} />
-					<span className="text-[10px] font-black uppercase tracking-widest">Jajan</span>
-				</button>
-				<button onClick={() => setActiveTab('riwayat')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'riwayat' ? 'text-amber-600 scale-110' : 'text-slate-400'}`}>
-					<ShoppingBag className={`w-6 h-6 ${activeTab === 'riwayat' ? 'fill-amber-600' : ''}`} />
-					<span className="text-[10px] font-black uppercase tracking-widest">Riwayat</span>
-				</button>
-			</div>
+			{cart.length > 0 && activeTab === 'home' && <div data-tour="user-cart" className="mobile-cart-bar cart-dock">
+				<button className="cart-dock-button" onClick={() => setIsDrawerOpen(true)}><span className="cart-count">{cart.reduce((sum,item) => sum + item.quantity,0)}</span><span className="cart-dock-label"><small>Keranjangmu</small><strong>{formatRupiah(totalPrice)}</strong></span><span className="cart-dock-next">Lihat pesanan <ArrowUpRight size={18} /></span></button>
+			</div>}
+			<nav className="mobile-bottom-nav bottom-navigation" aria-label="Navigasi utama">
+				<button className={activeTab === 'home' && (activeView !== 'personal' || selectedCategory !== '🌟 Favoritku') ? 'is-active' : ''} onClick={() => { setActiveTab('home'); setActiveView('personal'); setSelectedCategory('Semua'); setSearchQuery('') }}><Home size={21} /><span>Beranda</span></button>
+				<button className={activeTab === 'home' && activeView === 'personal' && selectedCategory === '🌟 Favoritku' ? 'is-active' : ''} onClick={() => { setActiveTab('home'); setActiveView('personal'); setSelectedCategory('🌟 Favoritku'); setSearchQuery('') }}><Heart size={21} /><span>Favorit</span></button>
+				<button data-tour="user-orders-nav" className={activeTab === 'riwayat' ? 'is-active' : ''} onClick={() => setActiveTab('riwayat')}><ReceiptText size={21} /><span>Pesanan</span></button>
+				<button aria-expanded={isSettingsOpen} onClick={() => setIsSettingsOpen(true)}><UserRound size={21} /><span>Akun</span></button>
+			</nav>
 
 			{/* Drawers */}
 			<CartDrawer
@@ -574,52 +371,68 @@ export default function UserDashboard({ session }: { session: Session }) {
 				onOpenChange={setIsDrawerOpen}
 				cart={cart}
 				onUpdateQuantity={updateQuantity}
-				onClearCart={() => setCart([])}
+				onUpdateNote={updateNote}
+				onClearCart={() => { if (!checkoutLock.current) setCart([]) }}
 				onSubmit={async (data) => {
-					let proofUrl = null
-					if (data.proofFile) {
-						const fileExt = data.proofFile.name.split('.').pop()
-						const fileName = `${Math.random()}.${fileExt}`
-						const { data: uploadData, error: uploadError } = await supabase.storage
-							.from('payment-proofs')
-							.upload(fileName, data.proofFile)
-						
-						if (uploadError) {
-							console.error("[Storage] Upload failed:", uploadError)
-							toast.error("Gagal upload bukti: " + uploadError.message)
-							return // Stop execution if upload fails
-						}
-
-						const { data: { publicUrl } } = supabase.storage.from('payment-proofs').getPublicUrl(uploadData.path)
-						proofUrl = publicUrl
-					}
-
-					if (!userId) {
-						toast.error("User session mismatch. Please re-login.")
-						return
-					}
-
-					for (const item of cart) {
-						for (let i = 0; i < item.quantity; i++) {
-							try {
-								await createOrder({
-									user_id: userId,
-									food_name: item.food_name,
-									price: item.price,
-									payment_method: data.paymentMethod,
-									catatan: data.catatan,
-									transfer_to: data.transferTo,
-									proof_url: proofUrl
-								})
-							} catch (err) {
-								console.error("[Order] Failed to create item:", item.food_name, err)
+					if (checkoutLock.current || cart.length === 0) return
+					if (typeof navigator !== 'undefined' && navigator.onLine === false) return toast.error('Kamu sedang offline. Sambungkan internet untuk mengirim pesanan. Keranjangmu tetap tersimpan.')
+					checkoutLock.current = true
+					setIsPlacingOrder(true)
+					try {
+						if (!userId) throw new Error("Sesi berakhir. Silakan masuk kembali.")
+						let proofUrl: string | null = null
+						if (data.paymentMethod === 'transfer') {
+							if (!data.proofFile) throw new Error("Mohon upload bukti transfer")
+							if (uploadedProof.current?.file === data.proofFile) {
+								proofUrl = uploadedProof.current.url
+							} else {
+								const fileName = `${userId}/${crypto.randomUUID()}.${data.proofFile.name.split('.').pop()}`
+								const { error } = await paymentProofService.upload(fileName, data.proofFile)
+								if (error) throw error
+								proofUrl = fileName
+								uploadedProof.current = { file: data.proofFile, url: proofUrl }
 							}
 						}
+
+						let remaining = cart.map(item => ({ ...item }))
+						let saved = 0
+						for (const item of cart) {
+							const ids = pendingOrderIds.current[item.id] || []
+							while (ids.length < item.quantity) ids.push(crypto.randomUUID())
+							pendingOrderIds.current[item.id] = ids.slice(0, item.quantity)
+							persistCart(remaining)
+							for (const id of ids.slice(0, item.quantity)) {
+								try {
+									await createOrder({ id, user_id: userId, food_name: item.food_name,
+										price: item.price, payment_method: data.paymentMethod,
+										catatan: item.note?.trim() || null, transfer_to: data.transferTo, proof_url: proofUrl })
+									saved++
+									pendingOrderIds.current[item.id] = pendingOrderIds.current[item.id].filter(unitId => unitId !== id)
+									remaining = remaining.map(row => row.id === item.id ? { ...row, quantity: row.quantity - 1 } : row).filter(row => row.quantity > 0)
+									persistCart(remaining)
+								} catch {
+									// Keep the same ID in the persisted cart for a safe retry.
+								}
+							}
+
+						}
+						setCart(remaining)
+						if (remaining.length) {
+							toast.error(`${saved} pesanan tersimpan. Sisanya belum dapat dikonfirmasi dan tetap di keranjang. Silakan coba lagi.`)
+						} else {
+							pendingOrderIds.current = {}
+							uploadedProof.current = null
+							setIsDrawerOpen(false)
+							toast.success("Semua pesanan berhasil dibuat!")
+						}
+					} catch (error) {
+						toast.error(error instanceof Error ? error.message : "Gagal mengirim pesanan. Keranjang tetap tersimpan.")
+					} finally {
+						checkoutLock.current = false
+						setIsPlacingOrder(false)
 					}
-					setCart([])
-					setIsDrawerOpen(false)
-					toast.success("Pesanan berhasil dibuat!")
 				}}
+
 				isSubmitting={isPlacingOrder}
 				formatRupiah={formatRupiah}
 			/>
@@ -639,7 +452,7 @@ export default function UserDashboard({ session }: { session: Session }) {
 
 			<OcrDrawer open={isOcrDrawerOpen} onOpenChange={setIsOcrDrawerOpen} file={ocrFile} currentUserId={userId} allProfiles={allProfiles} formatRupiah={formatRupiah} />
 
-			<TardutDrawer 
+			<TardutDrawer error={tardutError} onRetry={retryTardut}
 				open={isTardutDrawerOpen} 
 				onOpenChange={setIsTardutDrawerOpen} 
 				onSubmit={(amount, file) => submitTardut(
@@ -653,39 +466,39 @@ export default function UserDashboard({ session }: { session: Session }) {
 
 			{/* Manual Entry Drawer */}
 			<Drawer open={isManualDrawerOpen} onOpenChange={setIsManualDrawerOpen}>
-				<DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-10">
+				<DrawerContent className="max-w-[430px] mx-auto rounded-t-[28px] px-6 pb-10">
 					<DrawerHeader>
-						<DrawerTitle className="text-2xl font-black">Menu Manual 🥘</DrawerTitle>
+						<DrawerTitle className="text-2xl font-semibold">Menu Manual 🥘</DrawerTitle>
 						<DrawerDescription>Input makanan baru yang belum ada di daftar.</DrawerDescription>
 					</DrawerHeader>
 					<div className="space-y-6 py-6">
 						<div className="space-y-2">
-							<Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nama Makanan</Label>
-							<Input placeholder="Nasi Goreng" value={manualFoodName} onChange={e => setManualFoodName(e.target.value)} className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white transition-all shadow-xs" />
+							<Label className="text-[12px] font-semibold tracking-normal text-slate-400 ml-1">Nama Makanan</Label>
+							<Input placeholder="Nasi Goreng" value={manualFoodName} onChange={e => setManualFoodName(e.target.value)} className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500 focus-visible:bg-white transition-all shadow-xs" />
 						</div>
 						<div className="space-y-2">
-							<Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Harga (Rp)</Label>
-							<Input type="number" placeholder="15000" value={manualFoodPrice} onChange={e => setManualFoodPrice(e.target.value)} className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-amber-500 focus-visible:bg-white transition-all shadow-xs" />
+							<Label className="text-[12px] font-semibold tracking-normal text-slate-400 ml-1">Harga (Rp)</Label>
+							<Input type="number" placeholder="15000" value={manualFoodPrice} onChange={e => setManualFoodPrice(e.target.value)} className="rounded-2xl h-14 bg-slate-50 border-slate-100 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-emerald-500 focus-visible:bg-white transition-all shadow-xs" />
 						</div>
 					</div>
 					<DrawerFooter className="px-0">
-						<Button onClick={handleAddToCartManual} className="w-full h-16 rounded-3xl bg-slate-900 text-white font-black text-lg">TAMBAHKAN</Button>
+						<Button onClick={handleAddToCartManual} className="w-full h-16 rounded-3xl bg-slate-900 text-white font-semibold text-lg">Tambah ke keranjang</Button>
 					</DrawerFooter>
 				</DrawerContent>
 			</Drawer>
 
 			{/* Tracking Map Drawer */}
 			<Drawer open={!!trackingOb} onOpenChange={open => !open && setTrackingOb(null)}>
-				<DrawerContent className="max-w-[430px] mx-auto rounded-t-[40px] px-6 pb-12">
+				<DrawerContent className="max-w-[430px] mx-auto rounded-t-[28px] px-6 pb-12">
 					<DrawerHeader>
-						<DrawerTitle className="text-2xl font-black">Pantau OB 🛵</DrawerTitle>
-						<DrawerDescription>Posisi real-time {trackingOb} saat ini.</DrawerDescription>
+						<DrawerTitle className="text-2xl font-semibold">Pantau OB 🛵</DrawerTitle>
+						<DrawerDescription>Posisi real-time {obName(trackingOb)} saat ini.</DrawerDescription>
 					</DrawerHeader>
 					<div className="py-4">
 						{trackingOb && <TrackingMap obName={trackingOb} />}
 					</div>
 					<DrawerFooter className="px-0">
-						<Button onClick={() => setTrackingOb(null)} className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black">TUTUP ✅</Button>
+						<Button onClick={() => setTrackingOb(null)} className="w-full h-14 rounded-2xl bg-slate-900 text-white font-semibold">Tutup</Button>
 					</DrawerFooter>
 				</DrawerContent>
 			</Drawer>
@@ -696,7 +509,7 @@ export default function UserDashboard({ session }: { session: Session }) {
 				userId={userId}
 				currentName={profileName}
 				onLogout={handleLogout}
-				onProfileUpdated={fetchProfile}
+				onProfileUpdated={() => { void fetchProfile().catch(error => toast.error(errorMessage(error))) }}
 			/>
 
 			<RankingDrawer 
