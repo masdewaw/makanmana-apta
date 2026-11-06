@@ -303,8 +303,9 @@ button:focus-visible, a:focus-visible { outline: 3px solid #a9c78f; outline-offs
 .cart-menu-note p { display:flex; justify-content:space-between; gap:8px; font-size:10px; color:#8a9682; margin:6px 2px 0; }
 
 /* Match the app canvas, including desktop scrollbar compensation from scroll lock.
-   Vaul keeps ownership of its vertical transform and keyboard positioning. */
+   Vaul owns drag transforms; the shared drawer owns viewport positioning. */
 .mobile-drawer[data-vaul-drawer] {
+  bottom:var(--drawer-bottom, 0px);
   left:var(--drawer-left, 0px);
   right:auto;
   width:var(--drawer-width, 100%);

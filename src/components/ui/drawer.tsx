@@ -1,3 +1,4 @@
+import { drawerViewport } from '@/lib/drawer-viewport'
 import * as React from "react"
 import { X } from "lucide-react"
 import { Drawer as DrawerPrimitive } from "vaul"
@@ -6,11 +7,13 @@ import { cn } from "@/lib/utils"
 const Drawer = ({
   shouldScaleBackground = false,
   handleOnly = true,
+  repositionInputs = false,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Root>) => (
   <DrawerPrimitive.Root
     shouldScaleBackground={shouldScaleBackground}
     handleOnly={handleOnly}
+    repositionInputs={repositionInputs}
     {...props}
   />
 )
@@ -47,11 +50,27 @@ const DrawerContent = React.forwardRef<
     if (!element) return
     const viewport = window.visualViewport
     const shell = document.querySelector<HTMLElement>(".mobile-shell")
+    let focusFrame = 0
+    const revealFocusedInput = () => {
+      const focused = document.activeElement
+      if (!(focused instanceof HTMLElement) || !element.contains(focused) || !focused.matches('input, textarea, [contenteditable="true"]')) return
+      // Scroll only the sheet body, never the document or the app canvas.
+      const body = Array.from(element.children).find(child => child.classList.contains('overflow-y-auto'))
+      if (!(body instanceof HTMLElement) || !body.contains(focused)) return
+      const fieldBounds = focused.getBoundingClientRect()
+      const bodyBounds = body.getBoundingClientRect()
+      if (fieldBounds.bottom > bodyBounds.bottom - 12) body.scrollTop += fieldBounds.bottom - bodyBounds.bottom + 12
+      else if (fieldBounds.top < bodyBounds.top + 12) body.scrollTop -= bodyBounds.top + 12 - fieldBounds.top
+    }
     const update = () => {
       const bounds = shell?.getBoundingClientRect()
       const width = bounds?.width ?? Math.min(document.documentElement.clientWidth, 430)
       const left = bounds?.left ?? (document.documentElement.clientWidth - width) / 2
-      element.style.setProperty("--drawer-viewport-height", `${viewport?.height ?? window.innerHeight}px`)
+      const visible = drawerViewport(window.innerHeight, viewport)
+      element.style.setProperty("--drawer-viewport-height", `${visible.height}px`)
+      element.style.setProperty("--drawer-bottom", `${visible.bottom}px`)
+      cancelAnimationFrame(focusFrame)
+      focusFrame = requestAnimationFrame(revealFocusedInput)
       element.style.setProperty("--drawer-left", `${left}px`)
       element.style.setProperty("--drawer-width", `${width}px`)
     }
@@ -62,9 +81,14 @@ const DrawerContent = React.forwardRef<
     const lock = new MutationObserver(update)
     lock.observe(document.body, { attributes: true, attributeFilter: ["style", "class", "data-scroll-locked"] })
     lock.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] })
+    element.addEventListener("focusin", update)
+    viewport?.addEventListener("scroll", update)
     viewport?.addEventListener("resize", update)
     window.addEventListener("resize", update)
     return () => {
+      cancelAnimationFrame(focusFrame)
+      element.removeEventListener("focusin", update)
+      viewport?.removeEventListener("scroll", update)
       resize.disconnect()
       lock.disconnect()
       viewport?.removeEventListener("resize", update)
